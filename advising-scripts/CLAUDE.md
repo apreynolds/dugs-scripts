@@ -5,39 +5,81 @@ and keeps it current year after year. Built for UNB math degrees; the degree
 requirements are **data**, so other programmes are new data files, not new
 code.
 
-`NOTES.md` is the user-facing documentation — commands, requirements-file
-schema, how to hand this to a colleague. This file is the working guidance:
-the invariants, the traps, and how to verify a change.
+This file is both the user documentation and the working guidance: how to run
+it, the invariants, the traps, and how to verify a change.
+
+---
+
+## Running it
+
+```bash
+cd ~/Documents/3work/WIP-DUGS-related/advising
+
+uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+    student-records/NAME/transcript.pdf \
+    -r degree-requirements/bsc-math-2020.xlsx \
+    -o student-records/NAME/tracker.xlsx -t Honours
+```
+
+Next year, re-run with `-u` pointing at the existing tracker. Grades and new
+courses come from the transcript; the `Cat.`, `Ovr.`, `Notes` and GPA flags
+already entered are preserved.
+
+```bash
+uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+    student-records/NAME/transcript.pdf \
+    -r degree-requirements/bsc-math-2020.xlsx \
+    -u student-records/NAME/tracker.xlsx
+```
+
+Other things it does:
+
+```bash
+# Two calendar editions side by side in one tracker — repeat -r
+... -r degree-requirements/bsc-math-2020.xlsx -r degree-requirements/bsc-math-2027.xlsx
+
+# When a transcript won't parse, look at the coordinate grid first
+uv run transcript_to_tracker.py --dump-text transcript.pdf
+```
+
+`uv` puts the script's own directory on `sys.path`, so the sibling imports
+resolve inside the repo while the working directory stays wherever the data
+is. Only the paths typed as *arguments* are relative to the shell.
 
 ---
 
 ## Hard rules
 
-- **Never commit a `.pdf` or `.xlsx`.** A transcript is a student record; the
-  spreadsheets are all generated. `.gitignore` enforces this — do not add
-  exceptions. If something needs a transcript, generate one with
-  `make_sample_transcript.py`.
+- **Never commit a `.pdf` or an `.xlsx`.** A transcript is a student record;
+  the trackers are all generated. `.gitignore` enforces this.
+
+  The single exception is `sample-transcript.pdf`, the anonymized fixture the
+  checks run on — its student is "Last, First", number `1234567`, born
+  `MM/YY`. Do not add a second exception.
+
 - **Never commit anything *derived* from a real transcript** either — parsed
   CSVs, text dumps, a populated tracker. This history deliberately excludes an
   early `output.txt` because it contained a student number the sample's
   anonymisation had missed.
-- **Requirements data is edited as `.xlsx` but committed as `.tsv`.** After
-  changing a workbook, export before committing:
-  `make_requirements.py requirements/NAME.tsv --from-xlsx NAME.xlsx --force`
-- **No shell-outs, no system dependencies, `pathlib` for paths.** This is meant
-  to be handed to Windows-using colleagues. Dependencies go in each script's
-  PEP 723 inline block so `uv run` resolves them anywhere.
+
+- **The requirements workbooks are not tracked here.** They live in
+  `advising/degree-requirements/`, are maintained by hand in Excel, and reach
+  the pipeline through `-r`. The `requirements/*.tsv` in this repo is a *test
+  fixture only* — text so it is readable in a diff.
+
+- **No shell-outs, no system dependencies, `pathlib` for paths.** Dependencies
+  go in each script's PEP 723 inline block so `uv run` resolves them anywhere.
 
 ---
 
 ## Architecture
 
 ```
-requirements/*.tsv ──> [make_requirements] ──> requirements .xlsx ─┐
-                                                                   ├─> tracker .xlsx
-transcript .pdf ──────> [transcript_parser] ──> course rows ───────┤
-                                                                   │
-existing tracker .xlsx ─> [tracker_reader] ──> advisor's edits ────┘
+requirements .xlsx (hand-maintained) ─> [requirements_io] ──┐
+                                                            ├─> tracker .xlsx
+transcript .pdf ──────> [transcript_parser] ──> course rows ┤
+                                                            │
+existing tracker .xlsx ─> [tracker_reader] ──> advisor's edits ─┘
 ```
 
 | Module | Responsibility |
@@ -47,9 +89,7 @@ existing tracker .xlsx ─> [tracker_reader] ──> advisor's edits ───�
 | `requirements_io.py` | load + validate a requirements workbook |
 | `tracker_writer.py` | generate the tracker; every Excel formula lives here |
 | `tracker_reader.py` | read an existing tracker back as data |
-| `make_requirements.py` | build/convert requirements files, incl. the TSV round-trip |
-| `make_sample_transcript.py` | generate a fake transcript PDF |
-| `check_support.py` | shared setup for the checks |
+| `check_support.py` | shared setup for the checks, incl. the fixture `.tsv` → workbook builder |
 
 ### Invariants — don't break these
 
@@ -68,6 +108,40 @@ existing tracker .xlsx ─> [tracker_reader] ──> advisor's edits ───�
 4. **Parse by coordinate, not by whitespace.** `transcript_parser` reads column
    geometry from each block's own header line. Do not reintroduce
    regex-on-layout-text; that is what the rewrite removed.
+
+---
+
+## Requirements files
+
+A requirements file says which categories a programme has, how many credit
+hours each needs on each track, and which courses satisfy them. It has four
+sheets, and carries a **"How to use"** sheet documenting its own schema.
+
+The three things worth knowing:
+
+- **Track columns are the track names.** Add a column headed `Co-op`, add a
+  matching `Total CH: Co-op` row on the `Meta` sheet, and that track exists.
+  No code changes.
+- **An exact course code beats a wildcard.** With `MATH 3033` listed under
+  `3rdMath` and `MATH 3***` under `MathElec`, MATH 3033 goes to `3rdMath`.
+- **Blank `Courses` cells are deliberate.** Where only a human can decide
+  (Breadth, the science lecture/lab split) leave the cell empty and the
+  tracker leaves the call to you — about 40% of a typical transcript.
+
+---
+
+## How the tracker works
+
+- **Rows are keyed on `(term, course)`.** A retake is naturally distinct.
+- **`B3` is a track dropdown.** `Req. CH` cells resolve it via INDEX/MATCH
+  against a hidden `_TrackData` sheet. The grey-and-strikethrough formatting
+  keys off "this row requires 0 ch on the selected track", so it works for any
+  track a requirements file defines.
+- **`Ovr.` is `incl.` / `excl.`** — force a course to count toward progress,
+  or force it not to. It never affects GPA.
+- **No native Excel checkboxes.** They are a Microsoft 365-only feature that
+  does not render in Office 2019/2021 or LibreOffice. `gpa1`/`gpa2` and the
+  constraint ticks are TRUE/FALSE cells with a dropdown.
 
 ---
 
@@ -122,14 +196,14 @@ returns.
 
 ## Verifying a change
 
-**What can be checked here:** `uv run check_*.py`. They build their own inputs
-(a synthetic transcript, and a requirements workbook from the committed
-`.tsv`) into scratch directories, so they run from a bare clone.
+```bash
+for c in check_requirements check_merge check_two_editions check_formulas; do
+    echo "### $c"; uv run $c.py; done
+```
 
-`check_parser_parity.py` is the exception — it compares against the legacy
-`transcript_to_csv.py`, so it needs a **real** transcript and poppler. On the
-synthetic sample the legacy parser under-reads, which is itself why the parser
-was rewritten.
+The checks build their own inputs from the two fixtures the repo carries —
+`sample-transcript.pdf` and `requirements/bsc-math-2020.tsv` — into scratch
+directories, so they run from a bare clone with nothing else present.
 
 **What cannot be checked here:** whether Excel accepts the workbook, and
 whether the formulas evaluate. The offline `formulas` package cannot parse
@@ -141,6 +215,13 @@ So after any change to `tracker_writer.py`: run `check_formulas.py`, then
 **ask Patrick to open the workbook and spot-check a computed cell.** That step
 is load-bearing, not belt-and-braces — it is how both traps above were caught,
 and structural XML inspection missed both.
+
+`check_formulas.py` plants an `F`, a `W` and two `D` grades into the tracker
+before saving it, for exactly that reason. The sample transcript is a strong
+student — every grade A-range or `CR` — and against a transcript like that, a
+Progress column that wrongly counts failures looks identical to a correct one.
+The planted grades give the manual comparison something to disagree about.
+`check_merge.py` plants a retake for the same reason.
 
 ---
 
@@ -174,7 +255,7 @@ line accurate when flags change.
 
 ## Data lives elsewhere
 
-This repo holds no transcripts and no spreadsheets. Patrick keeps those in a
-separate advising folder and will point you at it when a task needs it — don't
-go looking. Real student records are never to be read unless he explicitly
-asks for a specific file.
+This repo holds no real transcripts and no spreadsheets. Patrick keeps those in
+`~/Documents/3work/WIP-DUGS-related/advising/` and will point you at a specific
+file when a task needs one — don't go looking. Real student records are never
+to be read unless he explicitly asks for a named file.

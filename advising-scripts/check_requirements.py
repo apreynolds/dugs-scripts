@@ -1,5 +1,5 @@
 # /// script
-# dependencies = ["openpyxl", "pdfplumber", "reportlab"]
+# dependencies = ["openpyxl", "pdfplumber"]
 # ///
 # check_requirements.py — verify the requirements loader and auto-categorization.
 # Usage: uv run check_requirements.py [REQUIREMENTS.xlsx TRANSCRIPT.pdf]

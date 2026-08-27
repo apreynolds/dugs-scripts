@@ -1,5 +1,5 @@
 # /// script
-# dependencies = ["openpyxl", "pdfplumber", "reportlab"]
+# dependencies = ["openpyxl", "pdfplumber"]
 # ///
 # check_two_editions.py — test side-by-side calendar editions in one tracker.
 # Usage: uv run check_two_editions.py

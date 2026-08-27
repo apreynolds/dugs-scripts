@@ -1,5 +1,5 @@
 # /// script
-# dependencies = ["openpyxl", "pdfplumber", "reportlab"]
+# dependencies = ["openpyxl", "pdfplumber"]
 # ///
 # check_formulas.py — guard against array-unsafe formulas, and work an example.
 # Usage: uv run check_formulas.py
@@ -60,6 +60,44 @@ def sheet_formulas(xlsx_path):
     return out
 
 
+def plant_edge_grades(sheet, headings):
+    """Overwrite a few grades so failure/withdrawal semantics get exercised.
+
+    Picks its targets by position rather than by course code, so it keeps
+    working if the transcript fixture is ever replaced. Returns a list of
+    (course, grade, override) describing what it changed.
+    """
+    wanted = [("F", ""), ("W", ""), ("D", ""), ("D", "incl.")]
+    planted = []
+
+    for row in range(6, 200):
+        if not wanted:
+            break
+        course = sheet.cell(row=row, column=headings["Course"]).value
+        grade = sheet.cell(row=row, column=headings["Gr."]).value
+        term = sheet.cell(row=row, column=headings["Term"]).value
+        # Only touch real graded rows. Skip transfer credits, where an "F"
+        # would just look wrong to anyone reading the workbook, and skip the
+        # MATH courses — they are the gpa1 sample below, which wants an
+        # ordinary spread of grades.
+        if not course or not grade or str(course).startswith("MATH"):
+            continue
+        if "TRANSFER" in str(term or "").upper():
+            continue
+        new_grade, override = wanted.pop(0)
+        sheet.cell(row=row, column=headings["Gr."], value=new_grade)
+        if override:
+            sheet.cell(row=row, column=headings["Ovr."], value=override)
+        planted.append((str(course), new_grade, override))
+
+    if wanted:
+        raise SystemExit(
+            "the transcript fixture has too few graded non-MATH rows to plant "
+            "edge-case grades in — " + str(len(wanted)) + " left over"
+        )
+    return planted
+
+
 def main():
     WORK, PDF, REQ = check_support.prepare("_formula_test")
     tracker = WORK / "tracker.xlsx"
@@ -102,6 +140,21 @@ def main():
                 for c in range(1, sheet.max_column + 1)}
     gpa1_col = headings["gpa1"]
 
+    # Plant the grades that make the manual Excel check DISCRIMINATING.
+    #
+    # sample-transcript.pdf is a good student: every grade is A-range or CR.
+    # Against a transcript like that, a Progress column that wrongly counts
+    # failed courses looks exactly like a correct one — there are no failures
+    # to miscount — so trap 2 in CLAUDE.md would sail past the one step that
+    # actually catches it, Patrick opening the workbook. Overwriting a few
+    # grades here gives that step something to disagree about:
+    #
+    #   F            must not count toward Progress, and drags the GPA down
+    #   W            must count toward neither (not even the GPA denominator)
+    #   D            must not count toward Progress on its own...
+    #   D + "incl."  ...but must once the advisor overrides it
+    planted = plant_edge_grades(sheet, headings)
+
     flagged = []
     for row in range(6, 70):
         course = sheet.cell(row=row, column=headings["Course"]).value
@@ -113,6 +166,10 @@ def main():
                                        column=headings["CH"]).value))
     workbook.save(str(tracker))
 
+    print("   planted edge-case grades:")
+    for course, grade, override in planted:
+        print("     {:12s} {:3s} {}".format(course, grade, override or ""))
+    print()
     print("   flagged " + str(len(flagged)) + " graded MATH courses as gpa1:")
     for course, grade, hours in flagged:
         print("     {:12s} {:3s} {} ch".format(course, str(grade), hours))
@@ -130,10 +187,59 @@ def main():
     print()
     print("   Tracker saved at:", tracker)
     print()
+
+    failures = []
     if expected.gpa(rows) == 0 or expected.gpa(rows, "gpa1") == 0:
-        print("  FAIL a GPA computed as 0 — the points factor collapsed")
+        failures.append("a GPA computed as 0 — the points factor collapsed")
+
+    # --- 3. the planted grades behave ---------------------------------------
+    #
+    # These assert the Python model in check_expected_values, which is what
+    # Patrick's manual Excel comparison is measured against. If the model
+    # itself stopped excluding failures, the comparison would agree with a
+    # broken workbook.
+
+    print("3. failure / withdrawal semantics")
+    by_course = {r["course"]: r for r in rows if r.get("course")}
+    for course, grade, override in planted:
+        row = by_course.get(course)
+        if row is None:
+            failures.append(course + " vanished from the tracker")
+            continue
+        counts = expected.counts_toward_progress(row)
+        should_count = (grade == "D" and override == "incl.")
+        if counts != should_count:
+            failures.append(
+                "{} ({}{}) counts_toward_progress={} but should be {}".format(
+                    course, grade, " + " + override if override else "",
+                    counts, should_count))
+        else:
+            print("   OK  {:12s} {:3s}{:8s} -> Progress {}".format(
+                course, grade, " " + override if override else "",
+                "counts" if counts else "excluded"))
+
+    withdrawn = [c for c, g, _ in planted if g == "W"]
+    gpa_with = expected.gpa(rows)
+    if any(by_course.get(c, {}).get("grade") == "W" for c in withdrawn):
+        # A W must not reach the GPA denominator. Give it a huge credit-hour
+        # value: if it were being counted, the average would move.
+        inflated = [dict(r) for r in rows]
+        for row in inflated:
+            if row.get("course") in withdrawn:
+                row["hours"] = 999
+        if expected.gpa(inflated) != gpa_with:
+            failures.append("a W grade is reaching the GPA denominator")
+        else:
+            print("   OK  W excluded from the GPA denominator")
+
+    if failures:
+        print()
+        for failure in failures:
+            print("  FAIL", failure)
         return 1
-    print("PASSED — no array-unsafe idioms, and both GPAs are non-zero.")
+    print()
+    print("PASSED — no array-unsafe idioms, GPAs non-zero, and failed / "
+          "withdrawn courses excluded.")
     return 0
 
 

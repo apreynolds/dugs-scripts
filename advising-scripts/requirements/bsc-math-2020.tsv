@@ -1,9 +1,12 @@
 # Degree-requirements data, tab-separated.
 #
-# This file is the version-controlled source. Rebuild the spreadsheet:
-#     make_requirements.py FILE.xlsx --from-tsv FILE.tsv
-# Edit the spreadsheet in Excel, then export back before committing:
-#     make_requirements.py FILE.tsv --from-xlsx FILE.xlsx
+# This is a TEST FIXTURE, not a working requirements file. The checks
+# rebuild it into a workbook in memory (check_support.workbook_from_tsv)
+# because requirements_io reads .xlsx and nothing else.
+#
+# The requirements files you actually advise from are the hand-maintained
+# workbooks in the advising data folder, passed to the CLI with -r. They
+# are not tracked here.
 #
 # Section headings in [brackets]; blank lines and #-comments ignored.
 

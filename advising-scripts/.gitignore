@@ -1,5 +1,5 @@
-# Spreadsheets are generated, never tracked. Rebuild a requirements workbook
-# from its .tsv:  make_requirements.py FILE.xlsx --from-tsv FILE.tsv
+# Spreadsheets are generated or maintained elsewhere, never tracked. The
+# degree-requirements workbooks live in the advising data folder, by hand.
 *.xlsx
 *.xls
 
@@ -7,11 +7,15 @@
 ~$*
 
 # Transcripts, and anything derived from one. A real transcript is a student
-# record and must never enter this history. Generate a safe fake instead:
-#   make_sample_transcript.py sample-transcript.pdf
+# record and must never enter this history.
 *.pdf
 output.txt
 result.csv
+
+# The one exception: an anonymized sample used as the checks' fixture. Its
+# name is "Last, First", its student number 1234567, its date of birth MM/YY.
+# See CLAUDE.md before adding any other exception here.
+!sample-transcript.pdf
 
 # Scratch directories the checks create for themselves
 _*_test/

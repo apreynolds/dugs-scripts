@@ -1,6 +1,7 @@
 # requirements_io.py — load and validate a degree-requirements workbook.
 # Usage: imported by transcript_to_tracker.py; not run directly.
-#        (Use `make_requirements.py` to create a starter requirements file.)
+#        (Requirements workbooks are maintained by hand; copy one of the
+#        _TEMPLATE-*.xlsx files in degree-requirements/ to start a new one.)
 #
 # A degree-requirements file is the DATA behind a tracker: which categories a
 # program has, how many credit hours each needs, and which courses satisfy

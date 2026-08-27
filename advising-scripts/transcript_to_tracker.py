@@ -186,8 +186,8 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="Build or update a degree tracker from a transcript PDF.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Requirements files are created with make_requirements.py and "
-               "then maintained by hand in Excel.",
+        epilog="Requirements workbooks are maintained by hand in Excel, in "
+               "the advising folder's degree-requirements/ directory.",
     )
     parser.add_argument("transcript", help="text-based transcript PDF")
     parser.add_argument(
@@ -223,9 +223,9 @@ def main(argv=None):
 
     if not args.requirements:
         parser.error(
-            "at least one --requirements file is needed.\n"
-            "Create one with:  ./make_requirements.py "
-            "requirements/my-program.xlsx --bsc-math"
+            "at least one --requirements file is needed — the .xlsx for "
+            "the student's programme and calendar year, from the advising "
+            "folder's degree-requirements/ directory."
         )
 
     # --- load inputs --------------------------------------------------------
