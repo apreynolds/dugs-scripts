@@ -56,6 +56,7 @@
 #   2 | Min 3 ch 4000-level MATH             | Honours
 
 import re
+import sys
 from pathlib import Path
 
 import openpyxl
@@ -94,10 +95,11 @@ class Category:
 class Constraint:
     """A rule the advisor ticks off by hand rather than one we compute."""
 
-    def __init__(self, number, text, tracks):
+    def __init__(self, number, text, tracks, note=""):
         self.number = number
         self.text = text
         self.tracks = tracks  # empty list = applies to every track
+        self.note = note      # optional; becomes a hover tooltip
 
     def applies_to(self, track):
         return not self.tracks or track in self.tracks
@@ -343,6 +345,9 @@ def _load_constraints(workbook, path, tracks):
     header = [_cell_text(c).lower() for c in rows[0]]
     idx_text = header.index("constraint") if "constraint" in header else 1
     idx_tracks = header.index("tracks") if "tracks" in header else None
+    # Optional, exactly as on the Requirements sheet. Absent in every workbook
+    # written before this column existed, so it has to stay optional.
+    idx_note = header.index("note") if "note" in header else None
 
     constraints = []
     for row in rows[1:]:
@@ -357,6 +362,10 @@ def _load_constraints(workbook, path, tracks):
             raw = _cell_text(row[idx_tracks])
             applies = [t.strip() for t in re.split(r"[;,]", raw) if t.strip()]
 
+        note = ""
+        if idx_note is not None and idx_note < len(row):
+            note = _cell_text(row[idx_note])
+
         for track in applies:
             if track not in tracks:
                 raise RequirementsError(
@@ -365,7 +374,8 @@ def _load_constraints(workbook, path, tracks):
                 )
 
         constraints.append(
-            Constraint(number=len(constraints) + 1, text=text, tracks=applies)
+            Constraint(number=len(constraints) + 1, text=text, tracks=applies,
+                       note=note)
         )
     return constraints
 
@@ -404,6 +414,30 @@ def _validate(requirements, path):
             )
 
 
+def _warn_about_cell_comments(workbook):
+    """Point out Excel cell comments, which this loader does not read.
+
+    An Excel "Note" (the yellow sticky, stored in xl/comments1.xml) lives
+    nowhere near the cell's value, so a note added that way is invisible here
+    and simply never reaches the tracker — silently, which is how it cost an
+    afternoon once. The Requirements and Constraints sheets both take a real
+    Note column; say so rather than dropping the text on the floor.
+    """
+    for name in ("Meta", "Requirements", "Constraints"):
+        if name not in workbook.sheetnames:
+            continue
+        for row in workbook[name].iter_rows():
+            for cell in row:
+                if cell.comment is None:
+                    continue
+                sys.stderr.write(
+                    "  note: " + name + "!" + cell.coordinate + " carries an "
+                    "Excel cell comment, which is not read.\n"
+                    "        Put the text in the sheet's Note column instead: "
+                    + repr(cell.comment.text.strip()) + "\n"
+                )
+
+
 def load_requirements(path):
     """Load and validate a requirements workbook. Returns a Requirements."""
     path = Path(path)
@@ -411,6 +445,7 @@ def load_requirements(path):
         raise RequirementsError("No such requirements file: " + str(path))
 
     workbook = openpyxl.load_workbook(str(path), data_only=True)
+    _warn_about_cell_comments(workbook)
 
     meta_sheet = _require_sheet(workbook, "Meta", path)
     req_sheet = _require_sheet(workbook, "Requirements", path)

@@ -163,13 +163,24 @@ def workbook_from_tsv(tsv_path):
         if key:
             meta.append([key, _as_number(value)])
 
+    # Carry the section's own header through rather than hardcoding the
+    # columns. requirements_io resolves this sheet by header NAME, so the
+    # fixture has to be able to grow a column (Note, and whatever comes next)
+    # without this builder needing to know about it.
+    constraint_rows = sections.get("Constraints", [])
+    if constraint_rows and constraint_rows[0][0].strip() == "#":
+        constraint_header = constraint_rows[0]
+        constraint_body = constraint_rows[1:]
+    else:
+        constraint_header = ["#", "Constraint", "Tracks"]
+        constraint_body = constraint_rows
+
     constraints = []
-    for cells in _without_header(sections.get("Constraints", []), "#"):
-        number = _as_number(cells[0]) if cells else ""
-        text = cells[1] if len(cells) > 1 else ""
-        applies = cells[2] if len(cells) > 2 else ""
-        if text:
-            constraints.append([number, text, applies])
+    for cells in constraint_body:
+        padded = list(cells) + [""] * (len(constraint_header) - len(cells))
+        padded[0] = _as_number(padded[0]) if padded[0] else ""
+        if len(padded) > 1 and padded[1]:
+            constraints.append(padded[:len(constraint_header)])
 
     workbook = openpyxl.Workbook()
 
@@ -186,7 +197,7 @@ def workbook_from_tsv(tsv_path):
         meta_sheet.append(row)
 
     constraints_sheet = workbook.create_sheet("Constraints")
-    constraints_sheet.append(["#", "Constraint", "Tracks"])
+    constraints_sheet.append(list(constraint_header))
     for row in constraints:
         constraints_sheet.append(row)
 

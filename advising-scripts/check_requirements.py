@@ -40,6 +40,10 @@ def main():
     for k in req.constraints:
         scope = ", ".join(k.tracks) if k.tracks else "all tracks"
         print("  " + str(k.number) + ". [" + scope + "] " + k.text)
+        if k.note:
+            # Shown indented because it is a hover tooltip in the tracker,
+            # not part of the constraint's visible text.
+            print("       note: " + k.note)
     print()
 
     rows, student = transcript_parser.parse_transcript(pdf_path)

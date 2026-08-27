@@ -642,6 +642,13 @@ def build_tracker(path, requirement_sets, rows, student,
                                    value=constraint.text)
             text_cell.font = BODY_FONT
             text_cell.alignment = Alignment(wrap_text=True, vertical="center")
+            if constraint.note:
+                # Same construction as the category notes above, so the two
+                # kinds of tooltip look and behave identically.
+                comment = Comment(constraint.note, "Degree requirements")
+                comment.width = 320
+                comment.height = 90
+                text_cell.comment = comment
             tick = sheet.cell(row=excel_row, column=block.col_progress,
                               value=False)
             tick.alignment = Alignment(horizontal="center")

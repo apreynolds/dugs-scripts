@@ -127,6 +127,16 @@ The three things worth knowing:
 - **Blank `Courses` cells are deliberate.** Where only a human can decide
   (Breadth, the science lecture/lab split) leave the cell empty and the
   tracker leaves the call to you — about 40% of a typical transcript.
+- **`Note` columns become hover tooltips.** Both the `Requirements` and the
+  `Constraints` sheet take an optional `Note` column, rendered as a cell
+  comment on the description in the generated tracker. Optional and resolved
+  by header name, so a workbook without one is unaffected and the column can
+  sit anywhere.
+
+  An Excel **cell comment is not a substitute**. It lives in
+  `xl/comments1.xml`, nowhere near the cell's value, so the loader cannot see
+  it — a note added that way silently never reaches the tracker. That happened
+  once; `requirements_io` now warns when it finds one.
 
 ---
 

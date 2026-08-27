@@ -37,6 +37,6 @@ Thesis	MATH 4100	MATH 4100	0	6
 FreeElec	Free Electives		0	0
 
 [Constraints]
-#	Constraint	Tracks
-1	Max 6 ch STAT counted toward Breadth (any combination of Breadth1/Breadth2)
+#	Constraint	Tracks	Note
+1	Max 6 ch STAT counted toward Breadth		(any combination of Breadth1/Breadth2)
 2	Min 3 ch 4000-level MATH	Honours
