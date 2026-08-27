@@ -245,6 +245,18 @@ def main(argv=None):
               repr(labels[0]) + "; their columns will be numbered to keep "
               "them distinct.", file=sys.stderr)
 
+    # The track selector drives every requirements block at once, so only
+    # tracks common to all of them can be offered.
+    dropped = tracker_writer.dropped_tracks(requirement_sets)
+    if dropped:
+        offered = ", ".join(tracker_writer.common_tracks(requirement_sets))
+        print("Warning: these editions do not define the same tracks, so the "
+              "tracker offers only the ones they share (" + offered + ").",
+              file=sys.stderr)
+        for label, missing in dropped.items():
+            print("         " + label + " also defines: " +
+                  ", ".join(missing), file=sys.stderr)
+
     print("Parsing " + str(transcript_path) + " ...")
     transcript_rows, student = transcript_parser.parse_transcript(
         transcript_path)

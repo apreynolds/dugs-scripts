@@ -250,16 +250,50 @@ def _write_hidden_track_data(workbook, blocks):
     return positions
 
 
+def common_tracks(requirement_sets):
+    """Tracks every supplied edition defines, in the first edition's order.
+
+    B3 drives every requirements block at once, so a track that only some
+    editions know about could not be resolved by the others. Offering the
+    intersection means every selectable track works in every block. The caller
+    warns about anything dropped, so a missing "Co-op" is explained rather
+    than mysterious.
+    """
+    shared = set(requirement_sets[0].tracks)
+    for requirements in requirement_sets[1:]:
+        shared &= set(requirements.tracks)
+    ordered = [t for t in requirement_sets[0].tracks if t in shared]
+    # Falling back to the first edition's tracks keeps a pathological file
+    # (no overlap at all) producing a usable workbook rather than crashing.
+    return ordered or list(requirement_sets[0].tracks)
+
+
+def dropped_tracks(requirement_sets):
+    """Tracks that some edition defines but which are not offered."""
+    offered = set(common_tracks(requirement_sets))
+    dropped = {}
+    for requirements in requirement_sets:
+        missing = [t for t in requirements.tracks if t not in offered]
+        if missing:
+            dropped[requirements.label] = missing
+    return dropped
+
+
 def _track_lookup(position, data_row):
-    """An INDEX/MATCH that resolves one hidden-sheet row for the chosen track."""
+    """An INDEX/MATCH that resolves one hidden-sheet row for the chosen track.
+
+    Wrapped in IFERROR so that a track typed by hand into B3 that an edition
+    doesn't define reads as 0 — which greys the row out — rather than
+    spraying #N/A across the block.
+    """
     first = get_column_letter(position["first_col"])
     last = get_column_letter(position["last_col"])
     header = position["header_row"]
     return (
-        "INDEX(" + HIDDEN_SHEET_NAME + "!$" + first + "$" + str(data_row) +
-        ":$" + last + "$" + str(data_row) + ","
+        "IFERROR(INDEX(" + HIDDEN_SHEET_NAME + "!$" + first + "$" +
+        str(data_row) + ":$" + last + "$" + str(data_row) + ","
         "MATCH($B$3," + HIDDEN_SHEET_NAME + "!$" + first + "$" + str(header) +
-        ":$" + last + "$" + str(header) + ",0))"
+        ":$" + last + "$" + str(header) + ",0)),0)"
     )
 
 
@@ -309,7 +343,7 @@ def build_tracker(path, requirement_sets, rows, student,
     data_first_row = 6
     data_last_row = data_first_row + max(len(rows) + spare_rows, 20) - 1
 
-    tracks = requirement_sets[0].tracks
+    tracks = common_tracks(requirement_sets)
     chosen_track = track if track in tracks else tracks[0]
 
     positions = _write_hidden_track_data(workbook, blocks)
