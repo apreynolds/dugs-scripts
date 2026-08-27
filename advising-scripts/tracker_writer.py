@@ -99,20 +99,42 @@ OFF_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
 OFF_FONT = Font(color="FF7F7F7F", strike=True)
 
 
-def _array_literal(values):
-    """Render a Python list as an Excel array constant: {"A+","A",...}."""
-    parts = []
-    for value in values:
-        if isinstance(value, str):
-            parts.append('"' + value + '"')
-        else:
-            parts.append(str(value))
-    return "{" + ",".join(parts) + "}"
+# --- array-safe grade tests -------------------------------------------------
+#
+# Every grade test below is written as a sum of explicit equality comparisons
+# rather than the more compact MATCH/CHOOSE idiom the original template used.
+#
+# The reason is that SUMPRODUCT feeds a whole COLUMN into these expressions,
+# and neither MATCH nor CHOOSE reliably operates elementwise on an array:
+#
+#   IFERROR(CHOOSE(MATCH(Courses[Gr.],{...},0), 4.3,4,...), 0)
+#
+# CHOOSE rejects an array index, returns #VALUE!, and the IFERROR then
+# collapses the entire factor to the SCALAR 0 — so the GPA numerator silently
+# became 0 while the denominator still computed, and every GPA read 0.00.
+#
+# ISNUMBER(MATCH(...)) fails more insidiously: it collapses to a single
+# TRUE/FALSE for the whole column, which made Progress count every course in a
+# category regardless of grade — including failures.
+#
+# `(range="A+")` IS elementwise in every Excel version, so summing those is
+# verbose but correct. A grade can satisfy at most one term, so each sum is 0
+# or 1 and can be multiplied like a boolean.
 
 
-PASSING_ARRAY = _array_literal(PASSING_GRADES)
-GPA_GRADE_ARRAY = _array_literal(GPA_GRADES)
-GPA_POINT_ARRAY = _array_literal(GPA_POINTS)
+def _grade_is_one_of(grades):
+    """Array-safe "the grade is one of these" test. Yields 0 or 1 per row."""
+    return "(" + "+".join(
+        '(Courses[Gr.]="' + grade + '")' for grade in grades
+    ) + ")"
+
+
+def _grade_points():
+    """Array-safe 4.3-scale grade points. Yields 0 for any non-GPA grade."""
+    return "(" + "+".join(
+        '(Courses[Gr.]="' + grade + '")*' + str(points)
+        for grade, points in zip(GPA_GRADES, GPA_POINTS)
+    ) + ")"
 
 
 class Block:
@@ -183,7 +205,7 @@ def _progress_expression(cat_column_name, category_cell=None):
     OR (the grade is D and the row is force-included)), sum the credit hours.
     """
     passing = (
-        "(ISNUMBER(MATCH(Courses[Gr.]," + PASSING_ARRAY + ",0))"
+        "(" + _grade_is_one_of(PASSING_GRADES) +
         '*(Courses[Ovr.]<>"no"))'
         '+((Courses[Gr.]="D")*(Courses[Ovr.]="yes"))'
     )
@@ -206,10 +228,7 @@ def _gpa_formula(flag_column=None):
         '*(Courses[Gr.]<>"IP")*(Courses[Gr.]<>"CR")'
     )
     flag = "(" + _truthy(flag_column) + ")*" if flag_column else ""
-    points = (
-        "IFERROR(CHOOSE(MATCH(Courses[Gr.]," + GPA_GRADE_ARRAY + ",0),"
-        + ",".join(str(p) for p in GPA_POINTS) + "),0)"
-    )
+    points = _grade_points()
     return (
         "=IFERROR("
         "SUMPRODUCT(" + flag + exclusions + "*" + points + "*Courses[CH])"
