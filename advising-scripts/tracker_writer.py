@@ -33,7 +33,8 @@
 
 from openpyxl import Workbook
 from openpyxl.comments import Comment
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import (Alignment, Border, Color, Font, PatternFill,
+                             Side)
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -58,23 +59,44 @@ GRADE_CHOICES = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "D", "F",
 FONT = "Arial"
 SIZE = 10
 
-HEADER_FILL = PatternFill("solid", fgColor="1F4E79")
-HEADER_FONT = Font(name=FONT, size=SIZE, bold=True, color="FFFFFF")
+# Colours are written as 8-digit ARGB with an explicit "FF" (opaque) alpha.
+# Passing a 6-digit value makes openpyxl pad it with "00" — fully TRANSPARENT
+# — which Excel treats as malformed inside a differential format.
+HEADER_FILL = PatternFill("solid", fgColor="FF1F4E79")
+HEADER_FONT = Font(name=FONT, size=SIZE, bold=True, color="FFFFFFFF")
 BODY_FONT = Font(name=FONT, size=SIZE)
-LABEL_FONT = Font(name=FONT, size=SIZE, bold=True, color="375623")
+LABEL_FONT = Font(name=FONT, size=SIZE, bold=True, color="FF375623")
 VALUE_FONT = Font(name=FONT, size=SIZE, bold=True)
 
 # Excel hides its default gridlines underneath any cell fill, so a block that
 # gets conditionally filled needs explicit light-grey borders to keep looking
 # like a normal gridded table.
-GRIDLINE = Side(style="thin", color="D4D4D4")
+GRIDLINE = Side(style="thin", color="FFD4D4D4")
 GRID_BORDER = Border(left=GRIDLINE, right=GRIDLINE,
                      top=GRIDLINE, bottom=GRIDLINE)
 
-MET_FILL = PatternFill("solid", fgColor="C6EFCE")
-MET_FONT = Font(name=FONT, size=SIZE, color="006100")
-OFF_FILL = PatternFill("solid", fgColor="E7E6E6")
-OFF_FONT = Font(name=FONT, size=SIZE, color="7F7F7F", strike=True)
+# --- differential formats, used ONLY by conditional formatting --------------
+#
+# A dxf is not an ordinary cell style and Excel is strict about it:
+#
+#   * a solid fill must put its colour in bgColor, NOT fgColor, and keep an
+#     "automatic" fgColor (indexed 64). openpyxl's usual
+#     PatternFill("solid", fgColor=<colour>) produces a dxf that Excel
+#     rejects outright — it repairs the file and drops ALL conditional
+#     formatting from the sheet.
+#   * a dxf font carries only the DIFFERENCES from the cell's own font, so it
+#     must not restate the family and size. The cell is already Arial 10.
+#
+# The shape below is byte-for-byte what Excel itself writes, verified against
+# the dxfs in the hand-built TEMPLATE-bsc-math-NEW.xlsx.
+AUTOMATIC = Color(indexed=64)
+
+MET_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                       bgColor="FFC6EFCE")
+MET_FONT = Font(color="FF006100")
+OFF_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                       bgColor="FFE7E6E6")
+OFF_FONT = Font(color="FF7F7F7F", strike=True)
 
 
 def _array_literal(values):
@@ -597,14 +619,19 @@ def build_tracker(path, requirement_sets, rows, student,
             tick.font = BODY_FONT
 
             if constraint.tracks:
-                # Grey out a constraint that does not apply to the chosen track.
-                applicable = _array_literal(constraint.tracks)
+                # Grey out a constraint that does not apply to the chosen
+                # track. Written as a chain of <> tests rather than
+                # MATCH against an array constant: conditional-formatting
+                # formulas do not accept array constants, and Excel discards
+                # the whole sheet's formatting if one appears.
+                tests = ['$B$3<>"' + name + '"' for name in constraint.tracks]
+                condition = (tests[0] if len(tests) == 1
+                             else "AND(" + ",".join(tests) + ")")
                 sheet.conditional_formatting.add(
                     "$" + cat_letter + "$" + str(excel_row) + ":$" +
                     prog_letter + "$" + str(excel_row),
-                    FormulaRule(
-                        formula=["ISNA(MATCH($B$3," + applicable + ",0))"],
-                        fill=OFF_FILL, font=OFF_FONT, stopIfTrue=True),
+                    FormulaRule(formula=[condition], fill=OFF_FILL,
+                                font=OFF_FONT, stopIfTrue=True),
                 )
 
         _add_block_validation(sheet, block, categories,
