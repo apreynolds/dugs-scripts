@@ -180,20 +180,29 @@ itself why the parser was rewritten.
 
 ## Working alongside a data folder
 
-The repo holds no transcripts or spreadsheets, so testing happens wherever
-your data lives. Symlink the repo in and run from there:
+The repo holds no transcripts or spreadsheets, so real work happens wherever
+your data lives. Symlink the repo in beside your data and run from there:
 
 ```bash
-cd ~/Documents/3work/WIP-DUGS-related/advising/TEMP-conversion-script
-ln -s ~/3work/advising-scripts scripts
+cd /path/to/your/advising-data
+ln -s /path/to/advising-scripts scripts
 
-uv run scripts/transcript_to_tracker.py sample-transcript.pdf \
-    -r requirements/bsc-math-2020.xlsx -o out.xlsx -t Honours
+uv run scripts/transcript_to_tracker.py student/transcript.pdf \
+    -r degree-requirements/bsc-math-2020.xlsx \
+    -o student/tracker.xlsx -t Honours
 ```
 
 `uv` puts the script's own directory on `sys.path`, so the sibling imports
 resolve inside the repo while your working directory stays put and relative
-paths to local files keep working. Nothing to copy, nothing to go stale.
+paths to your own files keep working. Nothing to copy, nothing to go stale.
+
+The symlink can sit at any depth — `../scripts/...` and `../../scripts/...`
+work the same, because the imports resolve relative to the script, not to you.
+Only the paths you type as *arguments* are relative to your shell.
+
+Keep the symlink and the requirements files **outside** any directory holding
+student records, so the rule for that directory can stay a simple "never read
+anything in here" with no exceptions to maintain.
 
 ---
 
