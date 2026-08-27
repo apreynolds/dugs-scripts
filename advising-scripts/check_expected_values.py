@@ -29,9 +29,9 @@ def counts_toward_progress(row):
     """Mirror of the Progress SUMPRODUCT's inner test."""
     grade = row["grade"]
     override = (row.get("ovr") or "").lower()
-    if grade in PASSING and override != "no":
+    if grade in PASSING and override != "excl.":
         return True
-    if grade == "D" and override == "yes":
+    if grade == "D" and override == "incl.":
         return True
     return False
 

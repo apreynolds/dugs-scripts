@@ -42,6 +42,16 @@ def _flag(value):
     return _text(value).upper() == "TRUE"
 
 
+# The Ovr. column originally used "yes"/"no", which was ambiguous about what
+# question was being answered. Trackers generated before the change are
+# migrated on read so an advisor's existing overrides survive.
+LEGACY_OVERRIDES = {"yes": "incl.", "no": "excl."}
+
+
+def _override(value):
+    text = _text(value)
+    return LEGACY_OVERRIDES.get(text.lower(), text)
+
 
 def _number(value):
     if value is None or _text(value) == "":
@@ -122,7 +132,7 @@ def read_tracker(path):
             "title": title,
             "hours": _number(cell("CH")),
             "grade": _text(cell("Gr.")),
-            "ovr": _text(cell("Ovr.")),
+            "ovr": _override(cell("Ovr.")),
             "notes": _text(cell("Notes")),
             "gpa1": _flag(cell("gpa1")),
             "gpa2": _flag(cell("gpa2")),

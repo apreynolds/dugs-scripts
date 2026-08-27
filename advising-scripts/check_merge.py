@@ -48,9 +48,9 @@ def main():
             edits["PHYS 1051"] = ("SciLec", "",
                                   "counts as first-year science", True)
         if course == "CS 1073":
-            sheet.cell(row=row, column=6, value="no")          # Ovr.
+            sheet.cell(row=row, column=6, value="excl.")       # Ovr.
             sheet.cell(row=row, column=7, value="FreeElec")
-            edits["CS 1073"] = ("FreeElec", "no", "", False)
+            edits["CS 1073"] = ("FreeElec", "excl.", "", False)
         if course == "MATH 3063":
             sheet.cell(row=row, column=7, value="Breadth1")
             sheet.cell(row=row, column=10, value=True)         # gpa2

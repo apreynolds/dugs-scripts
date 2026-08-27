@@ -54,6 +54,16 @@ GPA_POINTS = [4.3, 4, 3.7, 3.3, 3, 2.7, 2.3, 2, 1]
 GRADE_CHOICES = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "D", "F",
                  "W", "IP", "CR"]
 
+# The Ovr. (override) vocabulary. These read as what they DO — "incl." forces
+# the course to count, "excl." forces it not to. The earlier "yes"/"no"
+# wording was ambiguous: it left open what question was being answered, and
+# "yes" could just as easily be read as "yes, override the default" (i.e.
+# exclude it) as "yes, include it".
+OVR_INCLUDE = "incl."
+OVR_EXCLUDE = "excl."
+OVR_INCLUDE_Q = '"' + OVR_INCLUDE + '"'
+OVR_EXCLUDE_Q = '"' + OVR_EXCLUDE + '"'
+
 # --- styling ----------------------------------------------------------------
 
 FONT = "Arial"
@@ -206,8 +216,8 @@ def _progress_expression(cat_column_name, category_cell=None):
     """
     passing = (
         "(" + _grade_is_one_of(PASSING_GRADES) +
-        '*(Courses[Ovr.]<>"no"))'
-        '+((Courses[Gr.]="D")*(Courses[Ovr.]="yes"))'
+        "*(Courses[Ovr.]<>" + OVR_EXCLUDE_Q + "))"
+        '+((Courses[Gr.]="D")*(Courses[Ovr.]=' + OVR_INCLUDE_Q + "))"
     )
     if category_cell is None:
         return "SUMPRODUCT((" + passing + ")*Courses[CH])"
@@ -713,10 +723,12 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
     grade.add("E" + str(data_first_row) + ":E" + str(data_last_row))
 
     override = DataValidation(
-        type="list", formula1='"yes,no"', allowBlank=True,
+        type="list",
+        formula1='"' + OVR_INCLUDE + "," + OVR_EXCLUDE + '"', allowBlank=True,
         showErrorMessage=True, errorTitle="Invalid override",
-        error='Use "yes" to force-include a course in progress, "no" to '
-              'force-exclude it, or leave blank for the default rule.',
+        error='Use "' + OVR_INCLUDE + '" to make this course count toward '
+              'progress, "' + OVR_EXCLUDE + '" to stop it counting, or leave '
+              'blank for the default rule.',
     )
     sheet.add_data_validation(override)
     override.add("F" + str(data_first_row) + ":F" + str(data_last_row))
@@ -725,8 +737,9 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
         "Override — adjusts PROGRESS counting only, never GPA.\n\n"
         "blank : default rule. C or better (and CR) counts; D, F, W and IP "
         "do not.\n"
-        "yes   : force-include, e.g. a D you have approved to count.\n"
-        "no    : force-exclude, e.g. the first attempt at a repeated course.",
+        + OVR_INCLUDE + " : count it anyway, e.g. a D you have approved.\n"
+        + OVR_EXCLUDE + " : don't count it, e.g. the first attempt at a "
+        "repeated course.",
         "Degree requirements")
     override_note.width = 360
     override_note.height = 130
