@@ -23,7 +23,7 @@
 #
 # Sheet "Requirements" — one row per category, header row first:
 #
-#   Category | Description | Courses | <Track1> | <Track2> | ... | Note
+#   Category | Description | Courses | <Track1> | <Track2> | ... | Pass | Note
 #
 #   Category     short unique code, e.g. "Calc"    (appears in the tracker's
 #                Cat. dropdown)
@@ -35,18 +35,29 @@
 #   <Track...>   one column per program track. The COLUMN HEADINGS ARE THE
 #                TRACK NAMES — add a column to add a track. Values are the
 #                required credit hours for that track.
+#   Pass         OPTIONAL. The lowest grade that earns credit in this
+#                category, e.g. "C" or "D". Blank falls back to the Meta
+#                sheet's "Default passing grade", which is itself "C" if
+#                absent — so a file with neither behaves exactly as every
+#                file did before this column existed.
 #   Note         optional hover-tooltip text shown in the tracker.
 #
 #   Exactly one category is the "slack" category (named in Meta). Its required
 #   hours are computed, not read, so the totals always reconcile.
 #
+# The Pass column is what lets one programme differ from another on grades.
+# A BSc refuses a D everywhere, so it needs neither the column nor the Meta
+# row. A BA accepts a D outside the major, so it sets the default to D and
+# overrides the math/stats categories back to C.
+#
 # Sheet "Meta" — a two-column key/value list:
 #
-#   Program            BSc Mathematics
-#   Edition            2020
-#   Slack category     FreeElec
-#   Total CH: Major    129
-#   Total CH: Honours  132
+#   Program                BSc Mathematics
+#   Edition                2020
+#   Slack category         FreeElec
+#   Default passing grade  C          (optional; "C" when absent)
+#   Total CH: Major        129
+#   Total CH: Honours      132
 #
 # Sheet "Constraints" — rules a human must attest to, since they're unreliable
 # to compute (e.g. whether 9 ch of Breadth form a coherent discipline):
@@ -62,12 +73,42 @@ from pathlib import Path
 import openpyxl
 
 # Column headings in the Requirements sheet that are NOT track names.
-RESERVED_HEADINGS = {"category", "description", "courses", "note", "notes"}
+#
+# Every heading NOT in here becomes a track, so a new reserved column must be
+# added to this set at the same moment the column appears in a workbook.
+# Otherwise "Pass" is read as a track called Pass, and the file then fails
+# validation for having no "Total CH: Pass" row — loudly, but for a reason
+# that reads as nonsense.
+RESERVED_HEADINGS = {"category", "description", "courses", "note", "notes",
+                     "pass"}
 
 META_PROGRAM = "program"
 META_EDITION = "edition"
 META_SLACK = "slack category"
+META_DEFAULT_PASS = "default passing grade"
 META_TOTAL_PREFIX = "total ch:"
+
+# --- the grade ladder -------------------------------------------------------
+#
+# An ORDINAL rank, deliberately separate from the 4.3 GPA scale in
+# tracker_writer. Two reasons to keep them apart:
+#
+#   * "does this earn credit?" and "what is this worth toward a GPA?" are
+#     different regulations. Deriving the first from the second would let an
+#     edit to the GPA scale silently move the passing bar.
+#   * the tracker compares two ranks inside a formula. Integers compare
+#     exactly; 2.3 >= 2.3 in floating point is a question nobody should have
+#     to think about while reading an Excel formula.
+#
+# Anything absent from this table ranks 0: F, W, IP, blank — and CR, which is
+# transfer credit and always counts, handled as its own term in the formula
+# rather than by giving it a rank.
+GRADE_RANK = {"A+": 9, "A": 8, "A-": 7, "B+": 6, "B": 5, "B-": 4,
+              "C+": 3, "C": 2, "D": 1}
+
+# What a file means when it says nothing. "C" reproduces the behaviour every
+# tracker had before the Pass column existed.
+DEFAULT_PASS_GRADE = "C"
 
 
 class RequirementsError(Exception):
@@ -81,12 +122,18 @@ class RequirementsError(Exception):
 class Category:
     """One requirement bucket, e.g. "9 ch of third-year MATH"."""
 
-    def __init__(self, code, description, course_patterns, req_ch, note):
+    def __init__(self, code, description, course_patterns, req_ch, note,
+                 pass_grade=""):
         self.code = code
         self.description = description
         self.course_patterns = course_patterns  # list of str, may be empty
         self.req_ch = req_ch                    # dict: track name -> int
         self.note = note
+        # "" means "no opinion" — the file's default applies. Resolve it
+        # through Requirements.pass_grade_for() rather than reading this
+        # directly, or a blank cell silently becomes a rank of 0 and every
+        # grade passes.
+        self.pass_grade = pass_grade
 
     def __repr__(self):
         return "<Category " + self.code + ">"
@@ -109,7 +156,8 @@ class Requirements:
     """A whole degree-requirements file, loaded and validated."""
 
     def __init__(self, program, edition, slack_category, tracks,
-                 categories, totals, constraints, source_path):
+                 categories, totals, constraints, source_path,
+                 default_pass_grade=DEFAULT_PASS_GRADE):
         self.program = program
         self.edition = edition
         self.slack_category = slack_category
@@ -118,6 +166,7 @@ class Requirements:
         self.totals = totals              # dict: track name -> total CH
         self.constraints = constraints
         self.source_path = Path(source_path)
+        self.default_pass_grade = default_pass_grade
 
     @property
     def label(self):
@@ -126,6 +175,19 @@ class Requirements:
 
     def category_codes(self):
         return [c.code for c in self.categories]
+
+    def pass_grade_for(self, code):
+        """The lowest grade that earns credit in category `code`.
+
+        Always returns a real grade letter, never "". An unknown code — which
+        is what a blank Cat. cell amounts to — gets the file's default, since
+        the block TOTAL counts uncategorised rows too and they still need a
+        bar to clear.
+        """
+        for category in self.categories:
+            if category.code == code and category.pass_grade:
+                return category.pass_grade
+        return self.default_pass_grade
 
     def match_category(self, course_code):
         """Which category does `course_code` satisfy? Returns a code or None.
@@ -199,6 +261,26 @@ def _cell_int(value, where, path):
     return int(number)
 
 
+def _cell_pass_grade(value, where, path):
+    """Read a cell that must hold a passing-grade letter. "" if empty.
+
+    Only grades that carry a rank are allowed. "F" is rejected because it
+    ranks 0, which would set the bar at zero and let blanks, withdrawals and
+    failures all count. "CR" and "W"/"IP" are rejected for the same reason —
+    they are not points on the scale, so they cannot be a threshold on it.
+    """
+    text = _cell_text(value).upper()
+    if text == "":
+        return ""
+    if text not in GRADE_RANK:
+        raise RequirementsError(
+            str(path) + ": " + where + " should be a passing grade (" +
+            ", ".join(sorted(GRADE_RANK, key=GRADE_RANK.get)) +
+            "), got " + repr(_cell_text(value))
+        )
+    return text
+
+
 def _split_patterns(text):
     """Split the Courses cell into a list of course patterns.
 
@@ -225,6 +307,7 @@ def _load_meta(sheet, path):
     program = ""
     edition = ""
     slack = ""
+    default_pass = DEFAULT_PASS_GRADE
     totals = {}
 
     for row in sheet.iter_rows(values_only=True):
@@ -241,6 +324,10 @@ def _load_meta(sheet, path):
             edition = value
         elif key == META_SLACK:
             slack = value
+        elif key == META_DEFAULT_PASS:
+            default_pass = _cell_pass_grade(
+                value, "Meta '" + _cell_text(row[0]) + "'", path
+            ) or DEFAULT_PASS_GRADE
         elif key.startswith(META_TOTAL_PREFIX):
             track = key[len(META_TOTAL_PREFIX):].strip()
             # Recover the track's original capitalisation from column A.
@@ -254,7 +341,7 @@ def _load_meta(sheet, path):
             str(path) + ": Meta sheet must define 'Slack category' — the "
             "category that absorbs leftover credit hours (e.g. FreeElec)."
         )
-    return program, edition, slack, totals
+    return program, edition, slack, default_pass, totals
 
 
 def _load_requirements_sheet(sheet, path):
@@ -277,6 +364,7 @@ def _load_requirements_sheet(sheet, path):
     idx_description = lowered.index("description")
     idx_courses = lowered.index("courses")
     idx_note = lowered.index("note") if "note" in lowered else None
+    idx_pass = lowered.index("pass") if "pass" in lowered else None
 
     # Every remaining non-empty heading is a track name. This is what lets a
     # colleague add a "Co-op" track by adding one column.
@@ -323,6 +411,10 @@ def _load_requirements_sheet(sheet, path):
             course_patterns=_split_patterns(cell(idx_courses)),
             req_ch=req_ch,
             note=cell(idx_note) if idx_note is not None else "",
+            pass_grade=_cell_pass_grade(
+                cell(idx_pass),
+                "Requirements row " + str(row_number) + " Pass", path,
+            ) if idx_pass is not None else "",
         ))
 
     if not categories:
@@ -450,7 +542,8 @@ def load_requirements(path):
     meta_sheet = _require_sheet(workbook, "Meta", path)
     req_sheet = _require_sheet(workbook, "Requirements", path)
 
-    program, edition, slack, totals = _load_meta(meta_sheet, path)
+    program, edition, slack, default_pass, totals = _load_meta(
+        meta_sheet, path)
     tracks, categories = _load_requirements_sheet(req_sheet, path)
     constraints = _load_constraints(workbook, path, tracks)
 
@@ -463,6 +556,7 @@ def load_requirements(path):
         totals=totals,
         constraints=constraints,
         source_path=path,
+        default_pass_grade=default_pass,
     )
     _validate(requirements, path)
     return requirements

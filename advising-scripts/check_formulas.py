@@ -32,6 +32,7 @@ import openpyxl
 
 import check_expected_values as expected
 import check_support
+import requirements_io
 import tracker_reader
 
 HERE = Path(__file__).resolve().parent
@@ -60,14 +61,30 @@ def sheet_formulas(xlsx_path):
     return out
 
 
+# (grade, override, should count toward Progress).
+#
+# The expectations are written out rather than computed, so this table is an
+# independent statement of the rule. They hold because every category in the
+# BSc fixture has a passing bar of C — the fixture carries no Pass column, so
+# the default applies throughout. main() asserts that, rather than trusting it.
+EDGE_CASES = [
+    ("F", "", False),        # a failure earns nothing
+    ("W", "", False),        # nor does a withdrawal
+    ("D", "", False),        # below the bar for this programme
+    ("D", "incl.", True),    # ...until the advisor allows it
+    ("F", "incl.", False),   # but "incl." must never resurrect an F
+    ("B", "incl.", True),    # already clears the bar: counted ONCE, not twice
+]
+
+
 def plant_edge_grades(sheet, headings):
     """Overwrite a few grades so failure/withdrawal semantics get exercised.
 
     Picks its targets by position rather than by course code, so it keeps
     working if the transcript fixture is ever replaced. Returns a list of
-    (course, grade, override) describing what it changed.
+    (course, grade, override, should_count) describing what it changed.
     """
-    wanted = [("F", ""), ("W", ""), ("D", ""), ("D", "incl.")]
+    wanted = list(EDGE_CASES)
     planted = []
 
     for row in range(6, 200):
@@ -84,11 +101,11 @@ def plant_edge_grades(sheet, headings):
             continue
         if "TRANSFER" in str(term or "").upper():
             continue
-        new_grade, override = wanted.pop(0)
+        new_grade, override, should_count = wanted.pop(0)
         sheet.cell(row=row, column=headings["Gr."], value=new_grade)
         if override:
             sheet.cell(row=row, column=headings["Ovr."], value=override)
-        planted.append((str(course), new_grade, override))
+        planted.append((str(course), new_grade, override, should_count))
 
     if wanted:
         raise SystemExit(
@@ -122,6 +139,26 @@ def main():
                             " formulas) — " + why)
         else:
             print("   OK  no " + idiom)
+
+    # The "incl." rescue term must be bounded BELOW the passing bar. Without
+    # that bound a course that already clears its bar satisfies both terms of
+    # the Progress sum and SUMPRODUCT counts its credit hours TWICE — an error
+    # no amount of reading the generated XML makes obvious, since the formula
+    # stays perfectly well-formed. Nothing offline can evaluate these
+    # formulas, so the guard is structural.
+    rescues = [f for f in formulas if '(Courses[Ovr.]="incl.")' in f]
+    unbounded = [f for f in rescues if ")<((Courses[Pass]=" not in f]
+    if not rescues:
+        failures.append('no formula rescues an "incl." row — the override '
+                        "has stopped doing anything")
+    elif unbounded:
+        failures.append(
+            "the incl. rescue is not bounded below the passing bar in " +
+            str(len(unbounded)) + " formula(s) — a course that already "
+            "passes would be counted twice")
+    else:
+        print("   OK  incl. rescue bounded below the bar (" +
+              str(len(rescues)) + " formulas)")
 
     if failures:
         print()
@@ -167,7 +204,7 @@ def main():
     workbook.save(str(tracker))
 
     print("   planted edge-case grades:")
-    for course, grade, override in planted:
+    for course, grade, override, _ in planted:
         print("     {:12s} {:3s} {}".format(course, grade, override or ""))
     print()
     print("   flagged " + str(len(flagged)) + " graded MATH courses as gpa1:")
@@ -199,15 +236,24 @@ def main():
     # itself stopped excluding failures, the comparison would agree with a
     # broken workbook.
 
-    print("3. failure / withdrawal semantics")
+    print("3. grade / override semantics")
+    req = requirements_io.load_requirements(REQ)
+    label = req.label
     by_course = {r["course"]: r for r in rows if r.get("course")}
-    for course, grade, override in planted:
+    for course, grade, override, should_count in planted:
         row = by_course.get(course)
         if row is None:
             failures.append(course + " vanished from the tracker")
             continue
-        counts = expected.counts_toward_progress(row)
-        should_count = (grade == "D" and override == "incl.")
+        # EDGE_CASES assumes a bar of C. Say so out loud rather than letting a
+        # future fixture with a Pass column quietly invalidate the table.
+        bar = expected.bar_for(row, req, label)
+        if bar != "C":
+            failures.append(
+                course + " has a passing bar of " + bar + ", but EDGE_CASES "
+                "is written for a bar of C")
+            continue
+        counts = expected.counts_toward_progress(row, bar)
         if counts != should_count:
             failures.append(
                 "{} ({}{}) counts_toward_progress={} but should be {}".format(
@@ -218,7 +264,7 @@ def main():
                 course, grade, " " + override if override else "",
                 "counts" if counts else "excluded"))
 
-    withdrawn = [c for c, g, _ in planted if g == "W"]
+    withdrawn = [c for c, g, _, _ in planted if g == "W"]
     gpa_with = expected.gpa(rows)
     if any(by_course.get(c, {}).get("grade") == "W" for c in withdrawn):
         # A W must not reach the GPA denominator. Give it a huge credit-hour

@@ -28,8 +28,15 @@ from pathlib import Path
 
 import openpyxl
 
+import requirements_io
+
 HERE = Path(__file__).resolve().parent
 REQUIREMENTS_TSV = HERE / "requirements" / "bsc-math-2020.tsv"
+# The BA fixture is the one that exercises per-category passing grades: it
+# accepts a D outside the major and refuses one inside it. The BSc fixture
+# deliberately carries no Pass column, so between them the checks cover both
+# the configured path and the backward-compatible default.
+BA_REQUIREMENTS_TSV = HERE / "requirements" / "ba-math-2020.tsv"
 SAMPLE_TRANSCRIPT = HERE / "sample-transcript.pdf"
 
 
@@ -140,9 +147,11 @@ def workbook_from_tsv(tsv_path):
     header = req_rows[0]
     body = req_rows[1:]
 
-    # Track names come from the header, exactly as requirements_io reads them.
-    reserved = {"category", "description", "courses", "note", "notes"}
-    tracks = [h for h in header[3:] if h and h.lower() not in reserved]
+    # Track names come from the header, exactly as requirements_io reads them
+    # — using its own reserved set, so the fixture builder cannot drift out of
+    # step with the loader when a new reserved column (Pass) appears.
+    tracks = [h for h in header
+              if h and h.lower() not in requirements_io.RESERVED_HEADINGS]
 
     # Pad short rows so every row has a cell per column, and convert the
     # credit-hour columns back to numbers so Excel stores them as numbers.
@@ -186,8 +195,11 @@ def workbook_from_tsv(tsv_path):
 
     requirements = workbook.active
     requirements.title = "Requirements"
-    requirements.append(["Category", "Description", "Courses"] + tracks +
-                        ["Note"])
+    # Carry the section's own header through rather than rebuilding it. The
+    # old version hardcoded Category/Description/Courses + tracks + Note, so a
+    # fixture that grew a column (Pass) would have had its data silently
+    # shifted out from under the headings.
+    requirements.append(list(header))
     for row in rows:
         requirements.append(list(row))
 
@@ -226,6 +238,13 @@ def sample_requirements(work_dir, name="bsc-math-2020.xlsx"):
     """Build the BSc Math requirements workbook from the committed .tsv."""
     path = Path(work_dir) / name
     workbook_from_tsv(REQUIREMENTS_TSV).save(str(path))
+    return path
+
+
+def ba_requirements(work_dir, name="ba-math-2020.xlsx"):
+    """Build the BA Math requirements workbook from the committed .tsv."""
+    path = Path(work_dir) / name
+    workbook_from_tsv(BA_REQUIREMENTS_TSV).save(str(path))
     return path
 
 

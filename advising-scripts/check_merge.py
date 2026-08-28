@@ -38,14 +38,21 @@ def main():
     sheet["B1"] = "Gretzky, Wayne"
     sheet["B2"] = "3213213"
 
+    # Resolve the columns by heading. They were once written as literal
+    # numbers, which quietly went one column out of step the moment the Pass
+    # column was inserted between Gr. and Ovr.
+    col = {sheet.cell(row=5, column=c).value: c
+           for c in range(1, sheet.max_column + 1)
+           if sheet.cell(row=5, column=c).value}
+
     # Pick the rows to edit from what is actually in the tracker rather than
     # naming courses. Hardcoded codes tie this check to one transcript, and
     # the fixture is the sort of thing that gets swapped.
     candidates = []
     for row in range(6, 60):
-        course = sheet.cell(row=row, column=2).value
-        grade = sheet.cell(row=row, column=5).value
-        term = sheet.cell(row=row, column=1).value
+        course = sheet.cell(row=row, column=col["Course"]).value
+        grade = sheet.cell(row=row, column=col["Gr."]).value
+        term = sheet.cell(row=row, column=col["Term"]).value
         if course and grade and "TRANSFER" not in str(term or "").upper():
             candidates.append((row, str(term), str(course)))
 
@@ -58,21 +65,22 @@ def main():
     edits = {}
 
     # A category + note + gpa1 flag.
-    sheet.cell(row=row_a, column=7, value="SciLec")            # Cat. 2020
-    sheet.cell(row=row_a, column=8, value="counts as first-year science")
-    sheet.cell(row=row_a, column=9, value=True)                # gpa1
+    sheet.cell(row=row_a, column=col["Cat. 2020"], value="SciLec")
+    sheet.cell(row=row_a, column=col["Notes"],
+               value="counts as first-year science")
+    sheet.cell(row=row_a, column=col["gpa1"], value=True)
     edits[(term_a, course_a)] = ("SciLec", "",
                                 "counts as first-year science", True)
 
     # An Ovr. that moves a course out of its auto-assigned category — the
     # CS 1003 / CS 1073 case in CLAUDE.md's "looks like a bug but isn't".
-    sheet.cell(row=row_b, column=6, value="excl.")             # Ovr.
-    sheet.cell(row=row_b, column=7, value="FreeElec")
+    sheet.cell(row=row_b, column=col["Ovr."], value="excl.")
+    sheet.cell(row=row_b, column=col["Cat. 2020"], value="FreeElec")
     edits[(term_b, course_b)] = ("FreeElec", "excl.", "", False)
 
     # A category plus the other GPA flag.
-    sheet.cell(row=row_c, column=7, value="Breadth1")
-    sheet.cell(row=row_c, column=10, value=True)               # gpa2
+    sheet.cell(row=row_c, column=col["Cat. 2020"], value="Breadth1")
+    sheet.cell(row=row_c, column=col["gpa2"], value=True)
     edits[(term_c, course_c)] = ("Breadth1", "", "", False)
 
     workbook.save(str(tracker))
@@ -155,34 +163,38 @@ def main():
     # be cleared by assigning to .value directly.
     removed = 0
     for row in range(6, 70):
-        if sheet.cell(row=row, column=1).value == "2026-1W":
-            for column in range(1, 11):
+        if sheet.cell(row=row, column=col["Term"]).value == "2026-1W":
+            # Stop at gpa2, the last Courses column. Ranging past it would
+            # reach into the requirements block sitting to its right.
+            for column in range(1, col["gpa2"] + 1):
                 sheet.cell(row=row, column=column).value = None
             removed += 1
 
     # A course the advisor planned by hand that no transcript will mention.
     first_blank = None
     for row in range(6, 70):
-        if not sheet.cell(row=row, column=1).value:
+        if not sheet.cell(row=row, column=col["Term"]).value:
             first_blank = row
             break
-    sheet.cell(row=first_blank, column=1, value="2027-1W")
-    sheet.cell(row=first_blank, column=2, value="MATH 4243")
-    sheet.cell(row=first_blank, column=3, value="TOPICS IN ALGEBRA")
-    sheet.cell(row=first_blank, column=4, value=3)
-    sheet.cell(row=first_blank, column=7, value="MathElec")
-    sheet.cell(row=first_blank, column=8, value="planned - not yet registered")
+    sheet.cell(row=first_blank, column=col["Term"], value="2027-1W")
+    sheet.cell(row=first_blank, column=col["Course"], value="MATH 4243")
+    sheet.cell(row=first_blank, column=col["Title"], value="TOPICS IN ALGEBRA")
+    sheet.cell(row=first_blank, column=col["CH"], value=3)
+    sheet.cell(row=first_blank, column=col["Cat. 2020"], value="MathElec")
+    sheet.cell(row=first_blank, column=col["Notes"],
+               value="planned - not yet registered")
 
     # A RETAKE: the same course code in a different term. The merge key is
     # (term, course), so this must stay a second row rather than collapsing
     # into the original — see invariant 2 in CLAUDE.md. The fixture transcript
     # has no repeated course, so the case has to be planted.
     retake_row = first_blank + 1
-    sheet.cell(row=retake_row, column=1, value="2027-1W")
-    sheet.cell(row=retake_row, column=2, value=course_a)
-    sheet.cell(row=retake_row, column=3, value="RETAKE")
-    sheet.cell(row=retake_row, column=4, value=3)
-    sheet.cell(row=retake_row, column=8, value="retake - planted by the check")
+    sheet.cell(row=retake_row, column=col["Term"], value="2027-1W")
+    sheet.cell(row=retake_row, column=col["Course"], value=course_a)
+    sheet.cell(row=retake_row, column=col["Title"], value="RETAKE")
+    sheet.cell(row=retake_row, column=col["CH"], value=3)
+    sheet.cell(row=retake_row, column=col["Notes"],
+               value="retake - planted by the check")
 
     workbook.save(str(tracker))
     print("   blanked " + str(removed) + " rows from 2026-1W, added a planned "

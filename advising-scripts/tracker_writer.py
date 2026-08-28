@@ -24,8 +24,12 @@
 #   row 6+  course rows                      category rows, TOTAL, CONSTRAINTS
 #
 # Courses table columns:
-#   Term | Course | Title | CH | Gr. | Ovr. | Cat. <edition>... | Notes
+#   Term | Course | Title | CH | Gr. | Pass | Ovr. | Cat. <edition>... | Notes
 #        | gpa1 | gpa2
+#
+# "Pass" is derived, not entered: it looks up the passing bar for whichever
+# category the row's Cat. cell names. Everything else in the table is either
+# transcript data or the advisor's own judgement.
 #
 # One "Cat. <edition>" column and one requirements block per requirements file
 # supplied, so a single file gives a one-edition tracker and two files
@@ -40,12 +44,21 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.formatting.rule import FormulaRule
 
+from requirements_io import GRADE_RANK
+
 SHEET_NAME = "Tracker"
 HIDDEN_SHEET_NAME = "_TrackData"
 
-# Grades that count toward degree progress. "CR" is transfer credit: it counts
-# toward progress and total credit hours but carries no GPA-bearing grade.
-PASSING_GRADES = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "CR"]
+# The Courses-table column holding each row's passing bar, looked up from the
+# category the advisor assigned. Its name appears inside structured formula
+# references, so it is written once here.
+PASS_COLUMN = "Pass"
+
+# Grade letters ordered worst-to-best, for building the rank expressions.
+# GRADE_RANK itself lives in requirements_io because that is where a
+# requirements file's Pass column is validated against it — the ladder is part
+# of what the DATA may say, so the loader owns it and the generator borrows it.
+RANKED_GRADES = sorted(GRADE_RANK, key=GRADE_RANK.get)
 
 # The 4.3 grade scale used for every GPA calculation.
 GPA_GRADES = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "D"]
@@ -75,6 +88,13 @@ SIZE = 10
 HEADER_FILL = PatternFill("solid", fgColor="FF1F4E79")
 HEADER_FONT = Font(name=FONT, size=SIZE, bold=True, color="FFFFFFFF")
 BODY_FONT = Font(name=FONT, size=SIZE)
+
+# The grade is the fact; the bar beside it is only a reference. Bolding one
+# and greying the other puts them in a visual hierarchy, so a column of mostly
+# identical "C"s reads as background rather than as data competing for
+# attention.
+GRADE_FONT = Font(name=FONT, size=SIZE, bold=True)
+PASS_FONT = Font(name=FONT, size=SIZE, color="FF9C9C9C")
 LABEL_FONT = Font(name=FONT, size=SIZE, bold=True, color="FF375623")
 VALUE_FONT = Font(name=FONT, size=SIZE, bold=True)
 
@@ -108,6 +128,17 @@ OFF_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
                        bgColor="FFE7E6E6")
 OFF_FONT = Font(color="FF7F7F7F", strike=True)
 
+# Excel's own "Good" and "Bad" colour pairs, used to make the Ovr. column
+# self-reporting. Nothing here judges whether an override was WISE — the point
+# is only that a sheet carrying several of them looks different at a glance
+# from one carrying none, so the exceptions are countable by eye.
+INCL_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                        bgColor="FFC6EFCE")
+INCL_FONT = Font(color="FF006100")
+EXCL_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                        bgColor="FFFFC7CE")
+EXCL_FONT = Font(color="FF9C0006")
+
 
 # --- array-safe grade tests -------------------------------------------------
 #
@@ -132,10 +163,19 @@ OFF_FONT = Font(color="FF7F7F7F", strike=True)
 # or 1 and can be multiplied like a boolean.
 
 
-def _grade_is_one_of(grades):
-    """Array-safe "the grade is one of these" test. Yields 0 or 1 per row."""
+def _grade_rank(column_name):
+    """Array-safe ordinal rank of a grade column. Yields 0 for anything
+    off the ladder — F, W, IP, CR and blank.
+
+    Takes the column name because the SAME expression is needed for two
+    columns: the student's grade (Courses[Gr.]) and the bar it has to clear
+    (Courses[Pass]). Comparing two of these keeps both sides elementwise,
+    which is what a lookup inlined into the SUMPRODUCT would destroy.
+    """
     return "(" + "+".join(
-        '(Courses[Gr.]="' + grade + '")' for grade in grades
+        "(Courses[" + column_name + ']="' + grade + '")*' +
+        str(GRADE_RANK[grade])
+        for grade in reversed(RANKED_GRADES)
     ) + ")"
 
 
@@ -153,16 +193,20 @@ class Block:
     def __init__(self, requirements, cat_column_name, first_column):
         self.req = requirements
         self.cat_column_name = cat_column_name
-        # Four visible columns plus a hidden numeric helper.
+        # Four visible columns plus two hidden helpers.
         self.col_category = first_column
         self.col_description = first_column + 1
         self.col_req = first_column + 2
         self.col_progress = first_column + 3
         self.col_earned = first_column + 4
+        # Each category's passing bar, as a letter. Hidden: the advisor sees
+        # it per COURSE in the Courses table's Pass column, which looks its
+        # value up here, so showing it twice would just be noise.
+        self.col_pass = first_column + 5
 
     @property
     def width(self):
-        return 5
+        return 6
 
     def letter(self, column):
         return get_column_letter(column)
@@ -183,12 +227,20 @@ def _ordered_categories(requirements):
     return fixed + slack
 
 
+# The Courses table is these, then one Cat. column per edition, then these.
+# Kept as named lists because the sheet's geometry is derived from their
+# LENGTHS before any block exists — the two used to be separate magic numbers
+# that had to be edited in step, which is exactly the kind of arithmetic that
+# goes wrong the once.
+COURSES_LEADING = ["Term", "Course", "Title", "CH", "Gr.", PASS_COLUMN, "Ovr."]
+COURSES_TRAILING = ["Notes", "gpa1", "gpa2"]
+
+
 def _courses_columns(blocks):
     """Column headings for the Courses table, in order."""
-    headings = ["Term", "Course", "Title", "CH", "Gr.", "Ovr."]
-    headings += [block.cat_column_name for block in blocks]
-    headings += ["Notes", "gpa1", "gpa2"]
-    return headings
+    return (list(COURSES_LEADING)
+            + [block.cat_column_name for block in blocks]
+            + list(COURSES_TRAILING))
 
 
 def _truthy(column_name):
@@ -207,18 +259,45 @@ def _truthy(column_name):
     return 'UPPER(Courses[' + column_name + ']&"")="TRUE"'
 
 
+def _passing_expression():
+    """The "this course earns its credit hours" test, per row.
+
+    Two terms that must never both fire for the same row:
+
+      met     the grade clears its category's bar, or is transfer credit,
+              and the advisor has not forced it out
+      rescue  the advisor has forced IN a real grade that fell short
+
+    The bar is per row, read from the Pass column, which the advisor's Cat.
+    choice resolves. So a D earns credit in a category whose bar is D and
+    earns nothing in one whose bar is C — which is the whole point.
+
+    The `rank < bar` factor in the rescue term is LOAD-BEARING, not tidiness.
+    Without it an "incl." on a course that already clears its bar satisfies
+    both terms, and SUMPRODUCT counts its credit hours TWICE. The old rule
+    was safe from this only by accident: it rescued "D" alone, and D was not
+    in the passing list, so the two terms could not overlap.
+
+    `rank > 0` is what keeps F out of the rescue. F, W, IP and a blank grade
+    all rank 0, so "incl." cannot resurrect a failure or switch on a planned
+    course that has not been taken yet.
+    """
+    rank = _grade_rank("Gr.")
+    bar = _grade_rank(PASS_COLUMN)
+    met = ("((" + rank + ">=" + bar + ')+(Courses[Gr.]="CR"))'
+           "*(Courses[Ovr.]<>" + OVR_EXCLUDE_Q + ")")
+    rescue = ("(" + rank + ">0)*(" + rank + "<" + bar + ")"
+              "*(Courses[Ovr.]=" + OVR_INCLUDE_Q + ")")
+    return met + "+" + rescue
+
+
 def _progress_expression(cat_column_name, category_cell=None):
     """SUMPRODUCT of credit hours earned, optionally filtered to a category.
 
     Reads as: for courses where (the category matches, if we're filtering)
-    AND ((the grade is C-or-better or CR, and the row is not force-excluded)
-    OR (the grade is D and the row is force-included)), sum the credit hours.
+    AND the course earns its credit hours, sum those credit hours.
     """
-    passing = (
-        "(" + _grade_is_one_of(PASSING_GRADES) +
-        "*(Courses[Ovr.]<>" + OVR_EXCLUDE_Q + "))"
-        '+((Courses[Gr.]="D")*(Courses[Ovr.]=' + OVR_INCLUDE_Q + "))"
-    )
+    passing = _passing_expression()
     if category_cell is None:
         return "SUMPRODUCT((" + passing + ")*Courses[CH])"
     return (
@@ -368,12 +447,11 @@ def build_tracker(path, requirement_sets, rows, student,
 
     blocks = []
     used_labels = {}
-    first_block_column = 6 + len(requirement_sets) + 3 + 2  # see below
-    # Courses table is: Term, Course, Title, CH, Gr., Ovr. (6)
-    #                 + one Cat. column per edition
-    #                 + Notes, gpa1, gpa2 (3)
-    # then one blank spacer column before the first requirements block.
-    courses_width = 6 + len(requirement_sets) + 3
+    # Courses table is COURSES_LEADING + one Cat. column per edition +
+    # COURSES_TRAILING, then one blank spacer column before the first
+    # requirements block.
+    courses_width = (len(COURSES_LEADING) + len(requirement_sets)
+                     + len(COURSES_TRAILING))
     first_block_column = courses_width + 2
 
     column = first_block_column
@@ -426,6 +504,12 @@ def build_tracker(path, requirement_sets, rows, student,
 
     # The two sub-GPA readouts sit directly above the flag columns that drive
     # them, so it is obvious which column feeds which number.
+    # Resolve every column we touch by NAME. Inserting the Pass column shifted
+    # Ovr. from F to G, and the literals that used to be dotted about here
+    # would have gone on quietly addressing the wrong column.
+    grade_col = headings.index("Gr.") + 1
+    pass_col = headings.index(PASS_COLUMN) + 1
+    ovr_col = headings.index("Ovr.") + 1
     gpa1_col = headings.index("gpa1") + 1
     gpa2_col = headings.index("gpa2") + 1
     for column_index, name in ((gpa1_col, "gpa1"), (gpa2_col, "gpa2")):
@@ -459,8 +543,8 @@ def build_tracker(path, requirement_sets, rows, student,
         hours = row.get("hours", "")
         sheet.cell(row=excel_row, column=4,
                    value=hours if hours != "" else None)
-        sheet.cell(row=excel_row, column=5, value=row.get("grade", ""))
-        sheet.cell(row=excel_row, column=6, value=row.get("ovr", ""))
+        sheet.cell(row=excel_row, column=grade_col, value=row.get("grade", ""))
+        sheet.cell(row=excel_row, column=ovr_col, value=row.get("ovr", ""))
         for block in blocks:
             key = "cat_" + block.req.label
             sheet.cell(row=excel_row,
@@ -479,11 +563,56 @@ def build_tracker(path, requirement_sets, rows, student,
         sheet.cell(row=excel_row, column=gpa1_col, value=False)
         sheet.cell(row=excel_row, column=gpa2_col, value=False)
 
+    # --- the Pass column ----------------------------------------------------
+    #
+    # A course's bar is the bar of the category the advisor filed it under, so
+    # each cell is an INDEX/MATCH into the first requirements block.
+    #
+    # This must be a REAL CELL and not the same lookup inlined into the
+    # Progress SUMPRODUCT. MATCH does not broadcast: handed a whole column as
+    # its lookup value it collapses to one scalar, and every row would then be
+    # measured against row 6's threshold — silently. That is trap 2 in
+    # CLAUDE.md wearing a different hat.
+    #
+    # With two editions the first one wins. Two editions normally means two
+    # calendar years of one degree, whose bars agree. A BA block beside a BSc
+    # block would need two different verdicts on the same row, and is not a
+    # supported layout.
+    primary = blocks[0]
+    block_first_row = 6
+    primary_last_cat = (block_first_row
+                        + len(_ordered_categories(primary.req)) - 1)
+    pass_range = ("$" + primary.letter(primary.col_pass) + "$" +
+                  str(block_first_row) + ":$" +
+                  primary.letter(primary.col_pass) + "$" +
+                  str(primary_last_cat))
+    code_range = ("$" + primary.letter(primary.col_category) + "$" +
+                  str(block_first_row) + ":$" +
+                  primary.letter(primary.col_category) + "$" +
+                  str(primary_last_cat))
+    courses_cat_letter = get_column_letter(
+        cat_columns[primary.cat_column_name])
+
+    for excel_row in range(data_first_row, data_last_row + 1):
+        # An uncategorised row still needs a bar to clear: the block TOTAL
+        # counts those rows, and a blank cell here would rank 0 and wave
+        # everything through. Hence the default as the IFERROR fallback.
+        sheet.cell(row=excel_row, column=pass_col, value=(
+            "=IFERROR(INDEX(" + pass_range + ",MATCH($" +
+            courses_cat_letter + str(excel_row) + "," + code_range +
+            ',0)),"' + primary.req.default_pass_grade + '")'))
+
     for excel_row in range(data_first_row, data_last_row + 1):
         for column_index in range(1, len(headings) + 1):
             cell = sheet.cell(row=excel_row, column=column_index)
-            cell.font = BODY_FONT
-            if column_index in (1, 2, 4, 5, 6, gpa1_col, gpa2_col):
+            if column_index == grade_col:
+                cell.font = GRADE_FONT
+            elif column_index == pass_col:
+                cell.font = PASS_FONT
+            else:
+                cell.font = BODY_FONT
+            if column_index in (1, 2, 4, grade_col, pass_col, ovr_col,
+                                gpa1_col, gpa2_col):
                 cell.alignment = Alignment(horizontal="center")
             elif column_index in cat_columns.values():
                 cell.alignment = Alignment(horizontal="center")
@@ -496,6 +625,23 @@ def build_tracker(path, requirement_sets, rows, student,
     table.tableStyleInfo = TableStyleInfo(
         name="TableStyleLight1", showRowStripes=True)
     sheet.add_table(table)
+
+    # Colour the overrides. Like every other rule here the formula is written
+    # for the TOP-LEFT cell of the range and re-evaluated relatively, so the
+    # reference is column-absolute but ROW-relative ($G6, not $G$6) — with
+    # $G$6 every row would test row 6 and the column would light up as one.
+    ovr_letter = get_column_letter(ovr_col)
+    ovr_range = ("$" + ovr_letter + "$" + str(data_first_row) +
+                 ":$" + ovr_letter + "$" + str(data_last_row))
+    for value, fill, font in ((OVR_INCLUDE, INCL_FILL, INCL_FONT),
+                              (OVR_EXCLUDE, EXCL_FILL, EXCL_FONT)):
+        sheet.conditional_formatting.add(
+            ovr_range,
+            FormulaRule(
+                formula=['$' + ovr_letter + str(data_first_row) + '="' +
+                         value + '"'],
+                fill=fill, font=font, stopIfTrue=False),
+        )
 
     # --- requirements blocks ------------------------------------------------
 
@@ -529,6 +675,11 @@ def build_tracker(path, requirement_sets, rows, student,
 
             sheet.cell(row=excel_row, column=block.col_category,
                        value=category.code)
+            # pass_grade_for() resolves the file's default, so this is always
+            # a real letter. A blank here would rank 0 and every grade would
+            # clear the bar, failures included.
+            sheet.cell(row=excel_row, column=block.col_pass,
+                       value=block.req.pass_grade_for(category.code))
             description_cell = sheet.cell(
                 row=excel_row, column=block.col_description,
                 value=category.description)
@@ -594,6 +745,7 @@ def build_tracker(path, requirement_sets, rows, student,
         # by pulling the numbers back out of the "12 / 15 ch" display string
         # with FIND and MID, which is brittle.
         sheet.column_dimensions[earned_letter].hidden = True
+        sheet.column_dimensions[block.letter(block.col_pass)].hidden = True
 
         # --- conditional formatting on this block ---------------------------
 
@@ -727,7 +879,13 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
               + " — or blank for in-progress.",
     )
     sheet.add_data_validation(grade)
-    grade.add("E" + str(data_first_row) + ":E" + str(data_last_row))
+    # Resolved by name: the Pass column sits between Gr. and Ovr., so these
+    # are no longer E and F, and a stale letter here would attach a dropdown
+    # to the wrong column without any complaint from Excel.
+    grade_letter = get_column_letter(headings.index("Gr.") + 1)
+    ovr_letter = get_column_letter(headings.index("Ovr.") + 1)
+    grade.add(grade_letter + str(data_first_row) + ":" +
+              grade_letter + str(data_last_row))
 
     override = DataValidation(
         type="list",
@@ -738,19 +896,37 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
               'blank for the default rule.',
     )
     sheet.add_data_validation(override)
-    override.add("F" + str(data_first_row) + ":F" + str(data_last_row))
+    override.add(ovr_letter + str(data_first_row) + ":" +
+                 ovr_letter + str(data_last_row))
 
     override_note = Comment(
         "Override — adjusts PROGRESS counting only, never GPA.\n\n"
-        "blank : default rule. C or better (and CR) counts; D, F, W and IP "
-        "do not.\n"
-        + OVR_INCLUDE + " : count it anyway, e.g. a D you have approved.\n"
+        "blank : default rule. The grade must reach the bar in the Pass "
+        "column, which comes from the category in Cat. Transfer credit (CR) "
+        "always counts.\n"
+        + OVR_INCLUDE + " : count it anyway, e.g. a D you have approved in a "
+        "category whose bar is C. An F is never counted, and neither is a "
+        "blank, W or IP.\n"
         + OVR_EXCLUDE + " : don't count it, e.g. the first attempt at a "
         "repeated course.",
         "Degree requirements")
     override_note.width = 360
-    override_note.height = 130
-    sheet["F5"].comment = override_note
+    override_note.height = 190
+    sheet[ovr_letter + "5"].comment = override_note
+
+    pass_letter = get_column_letter(headings.index(PASS_COLUMN) + 1)
+    pass_note = Comment(
+        "Lowest grade that earns credit in this course's category.\n\n"
+        "Filled in automatically from the Cat. column, so it changes when you "
+        "recategorise a course. Set per category in the requirements file — "
+        "that is how a BA can accept a D outside the major while a BSc "
+        "accepts none.\n\n"
+        "Not for typing in: overwriting the formula fixes the bar for that "
+        "row. Use Ovr. to make an exception.",
+        "Degree requirements")
+    pass_note.width = 360
+    pass_note.height = 170
+    sheet[pass_letter + "5"].comment = pass_note
 
     flags = DataValidation(type="list", formula1='"TRUE,FALSE"',
                            allowBlank=True)
@@ -772,7 +948,7 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
 def _set_widths(sheet, headings, blocks):
     widths = {
         "Term": 12, "Course": 12, "Title": 34, "CH": 5, "Gr.": 6,
-        "Ovr.": 6, "Notes": 26, "gpa1": 7, "gpa2": 7,
+        PASS_COLUMN: 6, "Ovr.": 6, "Notes": 26, "gpa1": 7, "gpa2": 7,
     }
     for index, heading in enumerate(headings, start=1):
         letter = get_column_letter(index)

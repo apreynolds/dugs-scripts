@@ -155,6 +155,34 @@ The three things worth knowing:
 - **Blank `Courses` cells are deliberate.** Where only a human can decide
   (Breadth, the science lecture/lab split) leave the cell empty and the
   tracker leaves the call to you — about 40% of a typical transcript.
+- **`Pass` sets the lowest grade that earns credit, per category.** Optional
+  column on the `Requirements` sheet, holding a grade letter. Blank falls back
+  to the `Meta` sheet's optional `Default passing grade`, which is itself `C`
+  when absent — so a file with neither behaves exactly as every file did
+  before the column existed, and `bsc-math-2020.xlsx` needs no edit.
+
+  This is what lets one programme differ from another on grades. A **BSc**
+  refuses a D everywhere, so it says nothing and gets `C` throughout. A **BA**
+  accepts a D outside the major, so it sets `Default passing grade` to `D` and
+  writes `C` on the eight MATH/STAT categories.
+
+  Write it that way round — default `D`, override the major — rather than
+  default `C` with `D` on the electives. It mirrors the regulation's own shape
+  ("a D counts, except in the major"), and it fails safe: a category added
+  later inherits `D`, which is right for the electives that are most of the
+  degree.
+
+  Only `A+ A A- B+ B B- C+ C D` are accepted. `F` is refused because it ranks
+  0, and a bar of zero would wave through blanks, withdrawals and failures
+  alike. `requirements/ba-math-2020.tsv` is the fixture that exercises all of
+  this; the BSc fixture deliberately has no `Pass` column so the default path
+  stays covered.
+
+  Adding the column to a workbook **before** the code supports it breaks that
+  workbook: every non-reserved heading is read as a track, so `Pass` becomes a
+  track with no `Total CH:` row. Loud, but the message reads as nonsense. The
+  workbook edit and `RESERVED_HEADINGS` have to land together.
+
 - **`Note` columns become hover tooltips.** Both the `Requirements` and the
   `Constraints` sheet take an optional `Note` column, rendered as a cell
   comment on the description in the generated tracker. Optional and resolved
@@ -175,8 +203,33 @@ The three things worth knowing:
   against a hidden `_TrackData` sheet. The grey-and-strikethrough formatting
   keys off "this row requires 0 ch on the selected track", so it works for any
   track a requirements file defines.
+- **`Pass` is derived, not entered.** One column of the Courses table,
+  between `Gr.` and `Ovr.`, holding an `INDEX/MATCH` that resolves the row's
+  `Cat.` to its category's bar, defaulting to the file's default when `Cat.`
+  is blank. It is grey where `Gr.` is bold: the grade is the fact, the bar
+  beside it is only a reference.
+
+  The lookup has to be a real cell and not inlined into the Progress
+  `SUMPRODUCT` — see trap 2. With two editions the **first** one wins; two
+  editions normally means two calendar years of one degree, whose bars agree.
+  A BA block beside a BSc block would need two verdicts on one row and is not
+  a supported layout.
+
 - **`Ovr.` is `incl.` / `excl.`** — force a course to count toward progress,
-  or force it not to. It never affects GPA.
+  or force it not to. It never affects GPA. `incl.` rescues any real grade
+  that fell short of its bar **except F**; a blank, `W` or `IP` is not a grade
+  and is never rescued, so an `incl.` left on a planned course does nothing.
+  Both values are coloured — green and light red — so a tracker carrying
+  several exceptions looks different at a glance from one carrying none.
+
+  **The rescue term must stay bounded below the bar.** Without
+  `rank < bar` on it, an `incl.` on a course that already passes satisfies
+  both terms of the Progress sum and its credit hours are counted **twice**.
+  The old D-only rule was safe from this by accident — `D` was not in the
+  passing list, so the terms could not overlap. `check_formulas.py` asserts
+  the bound is present, because nothing offline can evaluate the formula and
+  the generated XML looks perfectly well-formed either way.
+
 - **No native Excel checkboxes.** They are a Microsoft 365-only feature that
   does not render in Office 2019/2021 or LibreOffice. `gpa1`/`gpa2` and the
   constraint ticks are TRUE/FALSE cells with a dropdown.
@@ -230,19 +283,26 @@ Write sums of explicit `(Courses[Gr.]="A+")` comparisons instead. Verbose, but
 elementwise in every Excel version. `check_formulas.py` fails if either idiom
 returns.
 
+The same trap is why the passing bar is a **column** rather than a lookup
+inside the sum. `MATCH(Courses[Cat. 2020], …)` handed a whole column collapses
+to one scalar, so every row would be measured against row 6's bar — silently,
+and only for students whose categories happen to differ. A per-row cell
+computing its own `INDEX/MATCH` is a scalar lookup and is safe.
+
 ---
 
 ## Verifying a change
 
 ```bash
 for c in check_requirements check_merge check_two_editions check_formulas \
-         check_blank; do
+         check_blank check_passing_grades; do
     echo "### $c"; uv run $c.py; done
 ```
 
-The checks build their own inputs from the two fixtures the repo carries —
-`sample-transcript.pdf` and `requirements/bsc-math-2020.tsv` — into scratch
-directories, so they run from a bare clone with nothing else present.
+The checks build their own inputs from the fixtures the repo carries —
+`sample-transcript.pdf`, `requirements/bsc-math-2020.tsv` and
+`requirements/ba-math-2020.tsv` — into scratch directories, so they run from a
+bare clone with nothing else present.
 
 **What cannot be checked here:** whether Excel accepts the workbook, and
 whether the formulas evaluate. The offline `formulas` package cannot parse
@@ -255,8 +315,9 @@ So after any change to `tracker_writer.py`: run `check_formulas.py`, then
 is load-bearing, not belt-and-braces — it is how both traps above were caught,
 and structural XML inspection missed both.
 
-`check_formulas.py` plants an `F`, a `W` and two `D` grades into the tracker
-before saving it, for exactly that reason. The sample transcript is a strong
+`check_formulas.py` plants six edge-case grades into the tracker before saving
+it, for exactly that reason — `F`, `W`, a bare `D`, `D + incl.`, `F + incl.`
+and `B + incl.` (the double-count case). The sample transcript is a strong
 student — every grade A-range or `CR` — and against a transcript like that, a
 Progress column that wrongly counts failures looks identical to a correct one.
 The planted grades give the manual comparison something to disagree about.
@@ -274,6 +335,14 @@ The planted grades give the manual comparison something to disagree about.
   is deliberately blank for those categories.
 - **The same course in two terms.** A retake. The merge key is
   `(term, course)`, so these are distinct rows, not duplicates.
+- **A whole `Pass` column reading `C`.** Expected on a BSc, where every
+  category has the same bar. It is grey precisely so it reads as background.
+- **A `D` counting toward a BA.** Also expected, outside the major — that is
+  the regulation. Check the row's `Pass` cell: `D` means it counts, `C` means
+  it does not.
+- **`Pass` reading `C` on a BA row.** The category in `Cat.` is a MATH/STAT
+  one, or `Cat.` is blank and the file's default is `C`. Recategorising the
+  row changes the bar with it.
 - **`gpa1`/`gpa2` showing `N/A`.** Nothing flagged yet. `0.00` would be the
   bug — see trap 2.
 
