@@ -116,6 +116,7 @@ with an empty row list, so there is no second generator to keep in step.
 | `transcript_parser.py` | PDF → course rows. **Change here for a new transcript format.** |
 | `requirements_io.py` | load + validate a requirements workbook |
 | `tracker_writer.py` | generate the tracker; every Excel formula lives here |
+| `checkbox_xlsx.py` | post-process the saved .xlsx into native Excel checkboxes; the only place that touches raw OOXML |
 | `tracker_reader.py` | read an existing tracker back as data |
 | `check_support.py` | shared setup for the checks, incl. the fixture `.tsv` → workbook builder |
 
@@ -230,17 +231,45 @@ The three things worth knowing:
   the bound is present, because nothing offline can evaluate the formula and
   the generated XML looks perfectly well-formed either way.
 
-- **No native Excel checkboxes.** They are a Microsoft 365-only feature that
-  does not render in Office 2019/2021 or LibreOffice. `gpa1`/`gpa2` and the
-  constraint ticks are TRUE/FALSE cells with a dropdown.
+- **`gpa1`/`gpa2` are native Excel checkboxes; the constraint ticks are not.**
+  This reverses an earlier decision. Checkboxes are a Microsoft 365 feature,
+  but the cell underneath stays an ordinary boolean — Office 2019/2021 and
+  LibreOffice just show `TRUE`/`FALSE`, which is still correct and still reads
+  back through `tracker_reader`. `--no-checkboxes` on either CLI forces the
+  old dropdowns.
+
+  The constraint ticks deliberately keep theirs: those are attestations being
+  signed off, and looking different from two scratch comparison flags is the
+  point.
+
+  openpyxl cannot write them, so `checkbox_xlsx.py` post-processes the saved
+  archive. Read its header before touching it — a template cannot work, for
+  three separate reasons, and each one is a dead end that looks live.
+
+  **Never read-modify-write a tracker that has them.** openpyxl rebuilds the
+  archive from its object model and silently drops the parts. That is already
+  invariant 1, but this is a second, quieter reason for it;
+  `check_checkboxes.py` pins the behaviour so it is discovered here rather
+  than in a stripped workbook.
+
+- **Nothing wraps.** No cell in the tracker or the requirements blocks sets
+  `wrap_text`. A constraint too long to fit is one that wants shortening, with
+  the rest moved into its `Note` column, which becomes a hover tooltip.
+  Growing the row hides the problem instead of showing it.
+
+- **Grey means one thing: "not on this track".** The Courses table has no
+  banded row stripes, because the stripe colour and the struck-out `OFF_FILL`
+  grey were near enough identical that the second stopped registering.
+  Anything new that wants a neutral fill should pick a different one.
 
 ---
 
-## The two Excel traps
+## The Excel traps
 
-Both shipped once in working-looking code. **Neither is visible in the
-generated XML** — the files were well-formed and the formulas syntactically
-valid. Read this before touching `tracker_writer.py`.
+Each of these shipped once in working-looking code. **None of them is visible
+in the generated XML** — the files were well-formed and the formulas
+syntactically valid. Read this before touching `tracker_writer.py` or
+`checkbox_xlsx.py`.
 
 ### 1. A `dxf` is not a cell style
 
@@ -289,13 +318,38 @@ to one scalar, so every row would be measured against row 6's bar — silently,
 and only for students whose categories happen to differ. A per-row cell
 computing its own `INDEX/MATCH` is a scalar lookup and is safe.
 
+### 3. A cell format is shared, so clone it before changing it
+
+openpyxl **dedupes** cell formats: every cell given the same font, fill,
+border and alignment ends up pointing at one `<xf>` in `xl/styles.xml`. In the
+tracker that means `gpa1`, `gpa2`, `Term`, `Course`, `CH`, `Gr.`, `Pass` and
+`Ovr.` all share a single entry.
+
+So attaching the checkbox extension to "the gpa cells' format" turns **eight
+columns** into checkboxes. `checkbox_xlsx.py` appends a *clone* carrying the
+extension and repoints only the target cells; `check_checkboxes.py` asserts
+that no other column came along.
+
+Two smaller faults ride along, both worth a repair prompt on their own:
+
+- `<extLst>` must be the **last** child of `<xf>`, after `<alignment>` and
+  `<protection>`;
+- a part, its `[Content_Types].xml` override and its relationship have to
+  arrive together, with an `rId` that is not already taken.
+
+*Technique:* when splitting XML with a regex, assert the split accounts for
+everything — `len(parts) == text.count("<xf")`, and rejoining reproduces the
+input. The first version of that pattern let `[^>]*` eat the `/` of a
+self-closing tag and silently merged two cell formats into one; the guard
+catches it instantly, and reading the output does not.
+
 ---
 
 ## Verifying a change
 
 ```bash
 for c in check_requirements check_merge check_two_editions check_formulas \
-         check_blank check_passing_grades; do
+         check_blank check_passing_grades check_checkboxes; do
     echo "### $c"; uv run $c.py; done
 ```
 

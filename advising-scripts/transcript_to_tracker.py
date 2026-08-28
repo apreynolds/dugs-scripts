@@ -24,6 +24,10 @@
 #                         tracker's)
 #   --csv                 also write the parsed transcript rows to a CSV
 #   --spare-rows N        blank rows to leave for manual additions (default 15)
+#   --no-checkboxes       render the gpa1/gpa2 flags as TRUE/FALSE dropdowns
+#                         instead of native Excel checkboxes. The checkboxes
+#                         need Excel 365; elsewhere they show as TRUE/FALSE
+#                         anyway, so this is only needed to avoid them
 #   --dump-text           print the transcript's word grid and exit; use this
 #                         when a new transcript format needs the parser
 #                         adjusting
@@ -204,6 +208,10 @@ def build_parser():
     parser.add_argument("--spare-rows", type=int, default=15, metavar="N",
                         help="blank rows left for manual additions "
                              "(default: 15)")
+    parser.add_argument("--no-checkboxes", dest="checkboxes",
+                        action="store_false",
+                        help="use TRUE/FALSE dropdowns for the gpa flags "
+                             "instead of native Excel checkboxes")
     parser.add_argument("--dump-text", action="store_true",
                         help="print the transcript's word grid and exit")
     return parser
@@ -306,6 +314,7 @@ def main(argv=None):
     tracker_writer.build_tracker(
         output, requirement_sets, rows, student,
         track=track, spare_rows=args.spare_rows,
+        checkboxes=args.checkboxes,
     )
 
     # --- report -------------------------------------------------------------

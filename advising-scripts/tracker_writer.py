@@ -44,6 +44,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.formatting.rule import FormulaRule
 
+import checkbox_xlsx
 from requirements_io import GRADE_RANK
 
 SHEET_NAME = "Tracker"
@@ -428,7 +429,7 @@ def _track_lookup(position, data_row):
 
 
 def build_tracker(path, requirement_sets, rows, student,
-                  track=None, spare_rows=15):
+                  track=None, spare_rows=15, checkboxes=True):
     """Generate the tracker workbook.
 
     requirement_sets — list of Requirements objects, one per edition
@@ -438,6 +439,10 @@ def build_tracker(path, requirement_sets, rows, student,
     track           — which track to preselect in B3
     spare_rows      — blank rows left at the foot of the Courses table so an
                       advisor can add a course by hand
+    checkboxes      — render the gpa1/gpa2 flags as native Excel checkboxes.
+                      Needs Excel 365; False falls back to the TRUE/FALSE
+                      dropdowns, which work everywhere. Either way the cells
+                      hold booleans and read back identically.
     """
     workbook = Workbook()
     sheet = workbook.active
@@ -622,8 +627,14 @@ def build_tracker(path, requirement_sets, rows, student,
         ref="A" + str(table_first_row) + ":" +
             get_column_letter(len(headings)) + str(data_last_row),
     )
+    # No banded rows. The stripe colour and the "not on this track" grey in
+    # the requirements block were near enough identical that the second one
+    # stopped registering as meaningful. Grey now means exactly one thing in
+    # this workbook — struck out, not on your track — and nothing else in it
+    # is grey. The header keeps its own explicit fill, which beats the table
+    # style, so only the banding goes.
     table.tableStyleInfo = TableStyleInfo(
-        name="TableStyleLight1", showRowStripes=True)
+        name="TableStyleLight1", showRowStripes=False)
     sheet.add_table(table)
 
     # Colour the overrides. Like every other rule here the formula is written
@@ -793,7 +804,11 @@ def build_tracker(path, requirement_sets, rows, student,
                                    column=block.col_description,
                                    value=constraint.text)
             text_cell.font = BODY_FONT
-            text_cell.alignment = Alignment(wrap_text=True, vertical="center")
+            # Deliberately NOT wrapped. Nothing in this workbook wraps: a
+            # constraint too long to fit is a constraint that wants shortening
+            # with the rest of it moved to its Note, which becomes a hover
+            # tooltip. Growing the row instead just hides the problem.
+            text_cell.alignment = Alignment(vertical="center")
             if constraint.note:
                 # Same construction as the category notes above, so the two
                 # kinds of tooltip look and behave identically.
@@ -828,13 +843,25 @@ def build_tracker(path, requirement_sets, rows, student,
                               constraints_row)
 
     _add_courses_validation(sheet, headings, data_first_row, data_last_row,
-                            gpa1_col, gpa2_col, tracks)
+                            gpa1_col, gpa2_col, tracks, checkboxes)
     _set_widths(sheet, headings, blocks)
 
     sheet.freeze_panes = "A6"
     sheet.sheet_view.showGridLines = True
 
     workbook.save(str(path))
+
+    # Checkboxes are a post-processing step: openpyxl cannot express them, so
+    # they are injected into the saved archive. See checkbox_xlsx.py for why
+    # a template cannot work instead. This runs last, on a finished file.
+    if checkboxes:
+        flag_cells = [
+            get_column_letter(column) + str(row)
+            for column in (gpa1_col, gpa2_col)
+            for row in range(data_first_row, data_last_row + 1)
+        ]
+        checkbox_xlsx.add_checkboxes(path, SHEET_NAME, flag_cells)
+
     return path
 
 
@@ -870,7 +897,7 @@ def _add_block_validation(sheet, block, categories, data_first_row,
 
 
 def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
-                            gpa1_col, gpa2_col, tracks):
+                            gpa1_col, gpa2_col, tracks, checkboxes=False):
     """Dropdowns on the Courses table and the track selector."""
     grade = DataValidation(
         type="list", formula1='"' + ",".join(GRADE_CHOICES) + '"',
@@ -928,13 +955,19 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
     pass_note.height = 170
     sheet[pass_letter + "5"].comment = pass_note
 
-    flags = DataValidation(type="list", formula1='"TRUE,FALSE"',
-                           allowBlank=True)
-    sheet.add_data_validation(flags)
-    for column_index in (gpa1_col, gpa2_col):
-        letter = get_column_letter(column_index)
-        flags.add(letter + str(data_first_row) + ":" +
-                  letter + str(data_last_row))
+    # A checkbox already constrains the cell to TRUE/FALSE, and a dropdown
+    # arrow sitting beside one looks like a second, different control. So the
+    # gpa flags get the dropdown only when they are NOT checkboxes. The
+    # constraint ticks keep theirs either way — those are attestations rather
+    # than scratch flags, and looking different is the point.
+    if not checkboxes:
+        flags = DataValidation(type="list", formula1='"TRUE,FALSE"',
+                               allowBlank=True)
+        sheet.add_data_validation(flags)
+        for column_index in (gpa1_col, gpa2_col):
+            letter = get_column_letter(column_index)
+            flags.add(letter + str(data_first_row) + ":" +
+                      letter + str(data_last_row))
 
     track = DataValidation(
         type="list", formula1='"' + ",".join(tracks) + '"',

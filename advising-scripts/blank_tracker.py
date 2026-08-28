@@ -19,6 +19,10 @@
 #       --id              student number to put in B2
 #       --rows N          blank course rows to leave (default 45, roughly a
 #                         four-year degree with room to spare)
+#       --no-checkboxes   render the gpa1/gpa2 flags as TRUE/FALSE dropdowns
+#                         instead of native Excel checkboxes. The checkboxes
+#                         need Excel 365; elsewhere they show as TRUE/FALSE
+#                         anyway, so this is only needed to avoid them
 #
 # Same tracker as transcript_to_tracker.py produces — same formulas, dropdowns,
 # conditional formatting and requirements blocks — just with no course rows
@@ -67,6 +71,10 @@ def build_parser():
                         help="student number to fill in")
     parser.add_argument("--rows", type=int, default=45, metavar="N",
                         help="blank course rows to leave (default: 45)")
+    parser.add_argument("--no-checkboxes", dest="checkboxes",
+                        action="store_false",
+                        help="use TRUE/FALSE dropdowns for the gpa flags "
+                             "instead of native Excel checkboxes")
     return parser
 
 
@@ -123,6 +131,7 @@ def main(argv=None):
     tracker_writer.build_tracker(
         output, requirement_sets, [], student,
         track=args.track, spare_rows=args.rows,
+        checkboxes=args.checkboxes,
     )
 
     print("Wrote " + str(output))
