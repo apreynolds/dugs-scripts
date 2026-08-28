@@ -106,10 +106,11 @@ def main():
     fixed_sum = 0
     lines = []
     for category in req.categories:
-        if category.code == req.slack_category:
-            continue
+        # None means "no target" — a catch-all. It contributes nothing to the
+        # sum of what the categories claim, which is the point of it.
         required = category.req_ch.get(track, 0)
-        fixed_sum += required
+        if required is not None:
+            fixed_sum += required
         bar = req.pass_grade_for(category.code)
         earned = sum(
             r["hours"] or 0 for r in rows
@@ -118,16 +119,13 @@ def main():
         )
         lines.append((category.code, earned, required, bar))
 
-    slack_required = total_required - fixed_sum
-    slack_bar = req.pass_grade_for(req.slack_category)
-    slack_earned = sum(
-        r["hours"] or 0 for r in rows
-        if r.get("cat_" + label) == req.slack_category
-        and counts_toward_progress(r, slack_bar)
-    )
-    lines.append((req.slack_category, slack_earned, slack_required, slack_bar))
-
     for code, earned, required, bar in lines:
+        if required is None:
+            # Rendered the way the tracker renders it: a count, no
+            # denominator, and no verdict either way.
+            print("  {:10s} {:>3d} ch        (pass {})  (no target)".format(
+                code, int(earned), bar))
+            continue
         met = "  <- met" if required > 0 and earned >= required else ""
         greyed = "  (not on this track)" if required == 0 else ""
         print("  {:10s} {:>3d} / {:<3d} ch  (pass {}){}{}".format(
@@ -141,11 +139,14 @@ def main():
     print("  {:10s} {:>3d} / {:<3d} ch".format(
         "TOTAL", int(grand_earned), int(total_required)))
     print()
-    print("Sanity check: category requirements sum to",
-          fixed_sum + slack_required, "and the declared total is",
-          total_required,
-          "->", "OK" if fixed_sum + slack_required == total_required
-          else "MISMATCH")
+    # The categories are no longer expected to reconcile to the total — the
+    # difference IS the free electives. What must still hold is that they do
+    # not over-claim, which is what requirements_io refuses outright.
+    print("Sanity check: categories claim", fixed_sum, "ch of the declared",
+          total_required, "ch;", total_required - fixed_sum,
+          "ch are free ->",
+          "OK" if fixed_sum <= total_required else "OVER-CLAIMED")
+    print("  catch-all categories:", ", ".join(req.no_target_codes()) or "none")
 
 
 if __name__ == "__main__":

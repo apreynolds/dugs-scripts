@@ -28,11 +28,14 @@ def main():
     print("edition :", req.edition)
     print("tracks  :", req.tracks)
     print("totals  :", req.totals)
-    print("slack   :", req.slack_category)
+    print("no target:", req.no_target_codes() or "-")
     print()
     print("categories:")
     for c in req.categories:
-        req_ch = "/".join(str(c.req_ch[t]) for t in req.tracks)
+        # None prints as the same dash the requirements file uses, so the
+        # summary reads back the way the sheet was typed.
+        req_ch = "/".join("—" if c.req_ch[t] is None else str(c.req_ch[t])
+                          for t in req.tracks)
         patterns = "; ".join(c.course_patterns) or "-"
         print("  {:10s} {:>7s} ch   {}".format(c.code, req_ch, patterns))
     print()

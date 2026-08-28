@@ -24,7 +24,6 @@
 Field	Value
 Program	BA Mathematics
 Edition	2020
-Slack category	FreeElec
 Default passing grade	D
 Total CH: Major	120
 Total CH: Honours	123
@@ -43,7 +42,7 @@ Stat	STAT 3083, STAT 3093	STAT 3083; STAT 3093	6	6	C	STAT 2593 can count for 308
 MathElec	Upper Year MATH Electives	MATH 3***; MATH 4***	15	15	C
 AnalysH	MATH 3113	MATH 3113	0	3	C	Honours only.
 Thesis	MATH 4100	MATH 4100	0	6	C	Honours only; 6 ch thesis.
-FreeElec	Free Electives		0	0		Slack category — required hours are computed.
+FreeElec	Free Electives		—	—		Catch-all: no target, just a count.
 
 [Constraints]
 #	Constraint	Tracks	Note

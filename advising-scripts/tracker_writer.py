@@ -55,6 +55,16 @@ HIDDEN_SHEET_NAME = "_TrackData"
 # references, so it is written once here.
 PASS_COLUMN = "Pass"
 
+# What a category with no target shows in its Req. CH cell. It is written into
+# the hidden lookup table as TEXT, and every conditional-formatting rule that
+# cares tests ISNUMBER/ISTEXT rather than the value — so "has a target" is a
+# question about the cell's TYPE, not about which row it sits on. That is what
+# lets a catch-all category appear anywhere in a requirements file.
+#
+# It must not be blank: Excel reads a blank lookup cell as 0, and 0 already
+# means "not part of this track" (greyed and struck out).
+NO_TARGET_TEXT = "—"
+
 # Grade letters ordered worst-to-best, for building the rank expressions.
 # GRADE_RANK itself lives in requirements_io because that is where a
 # requirements file's Pass column is validated against it — the ladder is part
@@ -128,6 +138,16 @@ MET_FONT = Font(color="FF006100")
 OFF_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
                        bgColor="FFE7E6E6")
 OFF_FONT = Font(color="FF7F7F7F", strike=True)
+
+# A category with no target — a catch-all like FreeElec. Informational, not a
+# verdict, so it needs a THIRD colour of its own. Grey is spoken for ("not on
+# this track" and nothing else), and simply leaving the cell unfilled is not
+# an option either: among a column of green rows, the absence of green reads
+# as "unmet", which is precisely the false alarm this row exists to stop
+# raising. The blue is the one already used for the block headings.
+NO_TARGET_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                             bgColor="FFDDEBF7")
+NO_TARGET_FONT = Font(color="FF1F4E79")
 
 # Excel's own "Good" and "Bad" colour pairs, used to make the Ovr. column
 # self-reporting. Nothing here judges whether an override was WISE — the point
@@ -211,21 +231,6 @@ class Block:
 
     def letter(self, column):
         return get_column_letter(column)
-
-
-def _ordered_categories(requirements):
-    """Category rows in display order, with the slack category last.
-
-    The slack row's formula subtracts the sum of every OTHER category's
-    required hours. Excel treats a SUMIF whose range includes the formula's
-    own cell as a circular reference even when the criterion excludes it, so
-    the slack row has to sit below the range it sums.
-    """
-    fixed = [c for c in requirements.categories
-             if c.code != requirements.slack_category]
-    slack = [c for c in requirements.categories
-             if c.code == requirements.slack_category]
-    return fixed + slack
 
 
 # The Courses table is these, then one Cat. column per edition, then these.
@@ -356,11 +361,13 @@ def _write_hidden_track_data(workbook, blocks):
         row += 1
 
         first_data_row = row
-        for category in _ordered_categories(block.req):
+        for category in block.req.categories:
             sheet.cell(row=row, column=1, value=category.code)
             for offset, track in enumerate(tracks):
-                sheet.cell(row=row, column=2 + offset,
-                           value=category.req_ch.get(track, 0))
+                required = category.req_ch.get(track, 0)
+                sheet.cell(
+                    row=row, column=2 + offset,
+                    value=NO_TARGET_TEXT if required is None else required)
             row += 1
 
         total_row = row
@@ -586,7 +593,7 @@ def build_tracker(path, requirement_sets, rows, student,
     primary = blocks[0]
     block_first_row = 6
     primary_last_cat = (block_first_row
-                        + len(_ordered_categories(primary.req)) - 1)
+                        + len(primary.req.categories) - 1)
     pass_range = ("$" + primary.letter(primary.col_pass) + "$" +
                   str(block_first_row) + ":$" +
                   primary.letter(primary.col_pass) + "$" +
@@ -658,7 +665,8 @@ def build_tracker(path, requirement_sets, rows, student,
 
     for block in blocks:
         position = positions[id(block)]
-        categories = _ordered_categories(block.req)
+        categories = block.req.categories
+        no_target = set(block.req.no_target_codes())
 
         cat_letter = block.letter(block.col_category)
         req_letter = block.letter(block.col_req)
@@ -700,29 +708,28 @@ def build_tracker(path, requirement_sets, rows, student,
                 comment.height = 90
                 description_cell.comment = comment
 
-            if category.code == block.req.slack_category:
-                # The slack category absorbs whatever the other categories do
-                # not account for, so the totals always reconcile.
-                last_fixed = excel_row - 1
-                sheet.cell(
-                    row=excel_row, column=block.col_req,
-                    value="=" + _track_lookup(position, position["total_row"])
-                    + "-SUM($" + req_letter + "$" + str(first_row) +
-                    ":$" + req_letter + "$" + str(last_fixed) + ")")
-            else:
-                sheet.cell(row=excel_row, column=block.col_req,
-                           value="=" + _track_lookup(position, hidden_row))
+            sheet.cell(row=excel_row, column=block.col_req,
+                       value="=" + _track_lookup(position, hidden_row))
 
             sheet.cell(
                 row=excel_row, column=block.col_earned,
                 value="=" + _progress_expression(
                     block.cat_column_name,
                     "$" + cat_letter + "$" + str(excel_row)))
-            sheet.cell(
-                row=excel_row, column=block.col_progress,
-                value='=TEXT($' + earned_letter + "$" + str(excel_row) +
-                      ',"0")&" / "&TEXT($' + req_letter + "$" +
-                      str(excel_row) + ',"0")&" ch"')
+
+            if category.code in no_target:
+                # No denominator, because there is no target to fall short of.
+                # The right formula is emitted per row rather than wrapping
+                # every row in an IF: the generator already knows which
+                # categories these are, so the sheet need not re-derive it.
+                progress = ('=TEXT($' + earned_letter + "$" + str(excel_row) +
+                            ',"0")&" ch"')
+            else:
+                progress = ('=TEXT($' + earned_letter + "$" + str(excel_row) +
+                            ',"0")&" / "&TEXT($' + req_letter + "$" +
+                            str(excel_row) + ',"0")&" ch"')
+            sheet.cell(row=excel_row, column=block.col_progress,
+                       value=progress)
 
         total_row = first_row + len(categories)
         last_category_row = total_row - 1
@@ -765,12 +772,21 @@ def build_tracker(path, requirement_sets, rows, student,
         # references here must be column-absolute but ROW-RELATIVE ($N6, not
         # $N$6) — otherwise every row would test row 6's condition and the
         # whole column would light up together.
+        # The ISNUMBER guard on the next two rules is what keeps a no-target
+        # row out of them. Its Req. CH cell holds TEXT ("—"), and Excel sorts
+        # text above every number, so a bare `>0` would be TRUE there. The
+        # second half of each test happens to rescue it, but only by accident
+        # of Excel's type ordering — which is exactly the kind of thing that
+        # holds until it doesn't. Say what is meant instead.
+        has_target = "ISNUMBER($" + req_letter + str(first_row) + ")"
+
         progress_range = ("$" + prog_letter + "$" + str(first_row) +
                           ":$" + prog_letter + "$" + str(total_row))
         sheet.conditional_formatting.add(
             progress_range,
             FormulaRule(
-                formula=["AND($" + req_letter + str(first_row) + ">0,$" +
+                formula=["AND(" + has_target + ",$" + req_letter +
+                         str(first_row) + ">0,$" +
                          earned_letter + str(first_row) + ">=$" +
                          req_letter + str(first_row) + ")"],
                 fill=MET_FILL, font=MET_FONT, stopIfTrue=False),
@@ -785,9 +801,28 @@ def build_tracker(path, requirement_sets, rows, student,
         sheet.conditional_formatting.add(
             row_range,
             FormulaRule(
-                formula=["$" + req_letter + str(first_row) + "=0"],
+                formula=["AND(" + has_target + ",$" + req_letter +
+                         str(first_row) + "=0)"],
                 fill=OFF_FILL, font=OFF_FONT, stopIfTrue=True),
         )
+
+        # A catch-all category — no target, so neither "met" nor "unmet". It
+        # gets its own colour rather than being left unfilled, because in a
+        # column of green rows an unfilled one reads as a failure.
+        #
+        # Discriminating on the cell's TYPE rather than on which row it sits
+        # on is what lets the range stay contiguous and lets a requirements
+        # file put its catch-all anywhere — or have several. The TOTAL row is
+        # excluded because it always resolves to a number.
+        if no_target:
+            sheet.conditional_formatting.add(
+                "$" + prog_letter + "$" + str(first_row) +
+                ":$" + prog_letter + "$" + str(last_category_row),
+                FormulaRule(
+                    formula=["ISTEXT($" + req_letter + str(first_row) + ")"],
+                    fill=NO_TARGET_FILL, font=NO_TARGET_FONT,
+                    stopIfTrue=False),
+            )
 
         # --- constraints ----------------------------------------------------
 

@@ -34,7 +34,19 @@
 #                Leave blank when only an advisor can decide (Breadth, etc.).
 #   <Track...>   one column per program track. The COLUMN HEADINGS ARE THE
 #                TRACK NAMES — add a column to add a track. Values are the
-#                required credit hours for that track.
+#                required credit hours for that track. Three spellings, three
+#                meanings:
+#
+#                  12       needs 12 ch on this track
+#                  0/blank  not part of this track (greyed and struck out)
+#                  —        NO TARGET: a catch-all that reports what has been
+#                           banked but is never "met" or "unmet"
+#
+#                The dash has to be typed deliberately, and that is the point.
+#                Blank cannot mean "no target" because blank already means 0,
+#                so a colleague who merely forgot a cell would silently get a
+#                category that can never be flagged unmet. A forgotten cell
+#                fails safe; only a dash opts out.
 #   Pass         OPTIONAL. The lowest grade that earns credit in this
 #                category, e.g. "C" or "D". Blank falls back to the Meta
 #                sheet's "Default passing grade", which is itself "C" if
@@ -42,8 +54,14 @@
 #                file did before this column existed.
 #   Note         optional hover-tooltip text shown in the tracker.
 #
-#   Exactly one category is the "slack" category (named in Meta). Its required
-#   hours are computed, not read, so the totals always reconcile.
+#   The categories are NOT required to add up to the declared total. The
+#   difference is free electives, and the "—" category is where they are
+#   recorded. Earlier versions computed that difference and gave it to a
+#   "slack" category as a requirement, which made the arithmetic reconcile but
+#   produced a row that could contradict the TOTAL row below it: the TOTAL
+#   counts uncategorised courses and a category row does not, so a finished
+#   student could show a red free-elective row under a green total. The
+#   loader now WARNS about an unexplained gap instead of manufacturing one.
 #
 # The Pass column is what lets one programme differ from another on grades.
 # A BSc refuses a D everywhere, so it needs neither the column nor the Meta
@@ -54,7 +72,6 @@
 #
 #   Program                BSc Mathematics
 #   Edition                2020
-#   Slack category         FreeElec
 #   Default passing grade  C          (optional; "C" when absent)
 #   Total CH: Major        129
 #   Total CH: Honours      132
@@ -84,9 +101,21 @@ RESERVED_HEADINGS = {"category", "description", "courses", "note", "notes",
 
 META_PROGRAM = "program"
 META_EDITION = "edition"
-META_SLACK = "slack category"
 META_DEFAULT_PASS = "default passing grade"
 META_TOTAL_PREFIX = "total ch:"
+
+# A Meta key that used to matter and no longer does. Kept here only so the
+# loader can say "delete this row" rather than ignoring it in silence, which
+# is exactly how a dead row survives in a hand-maintained workbook for years.
+META_RETIRED = {"slack category": (
+    "the slack mechanism was removed; mark the category's track cells "
+    '"—" on the Requirements sheet instead'
+)}
+
+# What a track cell holds when the category has no target at all. Accepts the
+# three dashes a person might actually type — em, en, and plain hyphen — since
+# Excel's autocorrect turns one into another depending on settings.
+NO_TARGET_LITERALS = {"—", "–", "-"}
 
 # --- the grade ladder -------------------------------------------------------
 #
@@ -127,7 +156,10 @@ class Category:
         self.code = code
         self.description = description
         self.course_patterns = course_patterns  # list of str, may be empty
-        self.req_ch = req_ch                    # dict: track name -> int
+        # dict: track name -> int, or None for "no target on this track".
+        # None and 0 are different: 0 means "not part of this track" and
+        # greys the row out, None means "counts, but nothing to meet".
+        self.req_ch = req_ch
         self.note = note
         # "" means "no opinion" — the file's default applies. Resolve it
         # through Requirements.pass_grade_for() rather than reading this
@@ -155,12 +187,11 @@ class Constraint:
 class Requirements:
     """A whole degree-requirements file, loaded and validated."""
 
-    def __init__(self, program, edition, slack_category, tracks,
+    def __init__(self, program, edition, tracks,
                  categories, totals, constraints, source_path,
                  default_pass_grade=DEFAULT_PASS_GRADE):
         self.program = program
         self.edition = edition
-        self.slack_category = slack_category
         self.tracks = tracks              # list of track names, in file order
         self.categories = categories      # list of Category, in file order
         self.totals = totals              # dict: track name -> total CH
@@ -175,6 +206,17 @@ class Requirements:
 
     def category_codes(self):
         return [c.code for c in self.categories]
+
+    def no_target_codes(self):
+        """Categories that carry no target on ANY track.
+
+        A category is a catch-all or it is not; a file that gave one a target
+        on Major and none on Honours would be describing two different things
+        under one code, and `_validate` refuses it. So "any" and "all" agree
+        here, and one list serves every track.
+        """
+        return [c.code for c in self.categories
+                if any(v is None for v in c.req_ch.values())]
 
     def pass_grade_for(self, code):
         """The lowest grade that earns credit in category `code`.
@@ -261,6 +303,18 @@ def _cell_int(value, where, path):
     return int(number)
 
 
+def _cell_req_ch(value, where, path):
+    """Read a track-column cell: a whole number, or None for "no target".
+
+    Deliberately NOT folded into _cell_int as a flag. _cell_int also reads the
+    Meta sheet's "Total CH:" rows, and a declared total must stay strictly
+    numeric — keeping them separate means the dash can never leak into it.
+    """
+    if _cell_text(value) in NO_TARGET_LITERALS:
+        return None
+    return _cell_int(value, where, path)
+
+
 def _cell_pass_grade(value, where, path):
     """Read a cell that must hold a passing-grade letter. "" if empty.
 
@@ -306,7 +360,6 @@ def _load_meta(sheet, path):
     """Read the Meta sheet's key/value pairs."""
     program = ""
     edition = ""
-    slack = ""
     default_pass = DEFAULT_PASS_GRADE
     totals = {}
 
@@ -322,8 +375,16 @@ def _load_meta(sheet, path):
             program = value
         elif key == META_EDITION:
             edition = value
-        elif key == META_SLACK:
-            slack = value
+        elif key in META_RETIRED:
+            # Say so rather than ignoring it. The if/elif chain below has no
+            # else, so an unknown key is silently dropped — which is fine for
+            # a colleague's own annotations, but wrong for a key that used to
+            # change behaviour and no longer does.
+            sys.stderr.write(
+                "  note: " + str(path) + " Meta sheet still has '" +
+                _cell_text(row[0]) + "', which is no longer read.\n"
+                "        " + META_RETIRED[key] + ".\n"
+            )
         elif key == META_DEFAULT_PASS:
             default_pass = _cell_pass_grade(
                 value, "Meta '" + _cell_text(row[0]) + "'", path
@@ -336,12 +397,7 @@ def _load_meta(sheet, path):
                 value, "Meta '" + _cell_text(row[0]) + "'", path
             )
 
-    if not slack:
-        raise RequirementsError(
-            str(path) + ": Meta sheet must define 'Slack category' — the "
-            "category that absorbs leftover credit hours (e.g. FreeElec)."
-        )
-    return program, edition, slack, default_pass, totals
+    return program, edition, default_pass, totals
 
 
 def _load_requirements_sheet(sheet, path):
@@ -399,7 +455,7 @@ def _load_requirements_sheet(sheet, path):
         req_ch = {}
         for track, column in track_columns.items():
             value = row[column] if column < len(row) else None
-            req_ch[track] = _cell_int(
+            req_ch[track] = _cell_req_ch(
                 value,
                 "Requirements row " + str(row_number) + " track " +
                 repr(track), path,
@@ -482,11 +538,23 @@ def _validate(requirements, path):
             str(path) + ": duplicate category codes: " + ", ".join(duplicates)
         )
 
-    if requirements.slack_category not in codes:
-        raise RequirementsError(
-            str(path) + ": slack category " + repr(requirements.slack_category)
-            + " is not one of the categories: " + ", ".join(codes)
-        )
+    # A category is a catch-all or it is not. Half-and-half would mean the
+    # same code describes a target on one track and a free-for-all on
+    # another, which no reader could hold in their head — and it would make
+    # the tracker's row change kind as B3 changes, since the Req. CH cell
+    # would resolve to a number for one track and a dash for another.
+    for category in requirements.categories:
+        values = list(category.req_ch.values())
+        if any(v is None for v in values) and not all(v is None
+                                                      for v in values):
+            marked = sorted(t for t, v in category.req_ch.items()
+                            if v is None)
+            raise RequirementsError(
+                str(path) + ": category " + repr(category.code) + " is "
+                'marked "—" (no target) on ' + ", ".join(marked) +
+                " but carries a number on the other tracks. Mark every "
+                "track, or none of them."
+            )
 
     for track in requirements.tracks:
         if track not in requirements.totals:
@@ -494,15 +562,33 @@ def _validate(requirements, path):
                 str(path) + ": Meta sheet is missing 'Total CH: " + track +
                 "'. Every track column needs a total."
             )
-        fixed = sum(
-            c.req_ch.get(track, 0) for c in requirements.categories
-            if c.code != requirements.slack_category
-        )
+        # Only the categories that actually make a claim. A "—" category has
+        # no number to add, which is the whole point of it.
+        fixed = sum(c.req_ch.get(track) or 0 for c in requirements.categories
+                    if c.req_ch.get(track) is not None)
         if fixed > requirements.totals[track]:
             raise RequirementsError(
                 str(path) + ": track " + repr(track) + " requires " +
                 str(fixed) + " ch across its categories, which exceeds the "
                 "declared total of " + str(requirements.totals[track]) + " ch."
+            )
+
+        # An unexplained shortfall is a WARNING, not an error: a programme is
+        # entitled to leave hours unaccounted for. But it is nearly always a
+        # missing catch-all, so say which numbers disagree. This replaces the
+        # old slack mechanism's guarantee that the categories reconciled —
+        # that guarantee was true by construction and so never caught
+        # anything, whereas this fires exactly when a file is incomplete.
+        gap = requirements.totals[track] - fixed
+        if gap > 0 and not requirements.no_target_codes():
+            sys.stderr.write(
+                "  note: " + str(path) + " track " + repr(track) + " has "
+                "categories totalling " + str(fixed) + " ch against a "
+                "declared " + str(requirements.totals[track]) + " ch, and no "
+                "category is marked \"—\".\n"
+                "        " + str(gap) + " ch are unaccounted for. Add a "
+                "catch-all category (e.g. FreeElec) with \"—\" in its track "
+                "cells.\n"
             )
 
 
@@ -542,15 +628,13 @@ def load_requirements(path):
     meta_sheet = _require_sheet(workbook, "Meta", path)
     req_sheet = _require_sheet(workbook, "Requirements", path)
 
-    program, edition, slack, default_pass, totals = _load_meta(
-        meta_sheet, path)
+    program, edition, default_pass, totals = _load_meta(meta_sheet, path)
     tracks, categories = _load_requirements_sheet(req_sheet, path)
     constraints = _load_constraints(workbook, path, tracks)
 
     requirements = Requirements(
         program=program,
         edition=edition or path.stem,
-        slack_category=slack,
         tracks=tracks,
         categories=categories,
         totals=totals,

@@ -156,6 +156,29 @@ The three things worth knowing:
 - **Blank `Courses` cells are deliberate.** Where only a human can decide
   (Breadth, the science lecture/lab split) leave the cell empty and the
   tracker leaves the call to you — about 40% of a typical transcript.
+- **A track cell has three spellings, not two.** `12` needs 12 ch; `0` or
+  blank means "not part of this track" (greyed and struck out); **`—` means
+  no target at all** — a catch-all that reports what has been banked and is
+  never met or unmet. `FreeElec` is the case it exists for.
+
+  Blank cannot mean "no target", because blank already means 0. A colleague
+  who merely forgot a cell would otherwise get a category that can never be
+  flagged unmet — so the dash has to be typed deliberately, and a forgotten
+  cell fails safe. `-`, `–` and `—` are all accepted, since Excel's
+  autocorrect swaps one for another.
+
+  Mark **every** track or none: a category numbered on Major and `—` on
+  Honours describes two different things under one code, and `requirements_io`
+  refuses it.
+
+  **The categories are not expected to add up to the declared total.** The
+  difference is the free electives. Earlier versions computed that difference
+  and handed it to a "slack" category as a requirement — the arithmetic
+  reconciled, but the row could contradict the TOTAL row directly beneath it,
+  because TOTAL counts uncategorised courses and a category row does not. A
+  finished student could show a red `12 / 26` under a green `132 / 132`. The
+  loader now *warns* about an unexplained gap instead of manufacturing one,
+  so deleting the catch-all is still caught.
 - **`Pass` sets the lowest grade that earns credit, per category.** Optional
   column on the `Requirements` sheet, holding a grade letter. Blank falls back
   to the `Meta` sheet's optional `Default passing grade`, which is itself `C`
@@ -262,6 +285,20 @@ The three things worth knowing:
   grey were near enough identical that the second stopped registering.
   Anything new that wants a neutral fill should pick a different one.
 
+- **A category with no target gets its own colour.** A `—` category shows
+  `26 ch` — a count, no denominator — on the pale blue `NO_TARGET_FILL`, and
+  can go neither green nor grey. Leaving it *unfilled* was the obvious cheap
+  option and is wrong: in a column of green rows, the absence of green reads
+  as "unmet", which is the exact false alarm the row exists to stop raising.
+  So the state is stated positively, in a third colour.
+
+  **Which row is which is a question about the cell's TYPE.** The `Req. CH`
+  cell holds text for a no-target row and a number for every other, so the
+  rules test `ISNUMBER` / `ISTEXT` rather than counting rows. That is what
+  lets the ranges stay contiguous and lets a requirements file put its
+  catch-all anywhere, or have several. See trap 4 for why the guard is not
+  optional.
+
 ---
 
 ## The Excel traps
@@ -343,13 +380,35 @@ input. The first version of that pattern let `[^>]*` eat the `/` of a
 self-closing tag and silently merged two cell formats into one; the guard
 catches it instantly, and reading the output does not.
 
+### 4. In Excel, text is greater than every number
+
+`"—" > 0` is **TRUE**. Excel's sort order puts every text value above every
+number, so a comparison meant as "does this row need any hours?" silently
+answers yes for a row whose `Req. CH` holds a dash.
+
+That is why the `Req. CH` cell can carry either a number or `—` at all, and
+why both the "met" and the "not on this track" rules are written
+`AND(ISNUMBER($O6), …)` rather than testing the value alone. Without the
+guard, the met rule fires on a category that has no target and cannot be met.
+
+The nasty part is that it *looks* fixed either way. `AND($O6>0,$Q6>=$O6)` also
+comes out FALSE on a dash — the second term compares a number to text and
+fails — so the row renders correctly while resting entirely on Excel's type
+ordering, one edit away from breaking. Every offline check passes and the XML
+is well-formed.
+
+Say what is meant: ask whether the cell is a number, then ask what the number
+is. `check_no_target.py` asserts the guard is present on both rules, and
+mutation-testing it (delete the guard, confirm the check fails) is the only
+way to know the assertion works.
+
 ---
 
 ## Verifying a change
 
 ```bash
 for c in check_requirements check_merge check_two_editions check_formulas \
-         check_blank check_passing_grades check_checkboxes; do
+         check_blank check_passing_grades check_checkboxes check_no_target; do
     echo "### $c"; uv run $c.py; done
 ```
 
@@ -384,6 +443,15 @@ The planted grades give the manual comparison something to disagree about.
 - **A category reading `8 / 4 ch` in green.** If a student took both CS 1003
   and CS 1073, auto-categorization assigns both to `CS`. The advisor moves one
   to `FreeElec`. Working as designed.
+- **`FreeElec` reading `26 ch` on blue, never going green.** It has no target
+  — that is the point. The verdict on whether the hours are there is the
+  TOTAL row, which counts every passing course including the uncategorised
+  ones. A `FreeElec` row that *could* go green would be re-deriving TOTAL and
+  would sometimes disagree with it.
+- **The category rows not adding up to the TOTAL row.** Expected: they claim
+  106 of 132 ch on Honours, and the 26 ch of difference are the free
+  electives. If the categories ever *over*-claim, the loader refuses the file
+  outright.
 - **~40% of `Cat.` cells left blank.** Breadth and the science lecture/lab
   split need human judgement, so the `Courses` column in the requirements file
   is deliberately blank for those categories.

@@ -14,7 +14,6 @@
 Field	Value
 Program	BSc Mathematics
 Edition	2020
-Slack category	FreeElec
 Total CH: Major	129
 Total CH: Honours	132
 
@@ -34,7 +33,7 @@ Breadth2	Breadth (3000/4000-level)		6	6
 MathElec	Upper Year MATH Electives	MATH 3***; MATH 4***	15	15	For Honours: at least 3 ch must be 4000-level. (See Constraints below.)
 AnalysH	MATH 3113	MATH 3113	0	3
 Thesis	MATH 4100	MATH 4100	0	6
-FreeElec	Free Electives		0	0
+FreeElec	Free Electives		—	—
 
 [Constraints]
 #	Constraint	Tracks	Note
