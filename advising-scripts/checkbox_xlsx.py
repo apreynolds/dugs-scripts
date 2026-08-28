@@ -45,6 +45,14 @@
 # extension and show TRUE/FALSE, which is still correct and still readable by
 # tracker_reader.
 #
+# All four were VERIFIED against a workbook Excel itself wrote — a scratch
+# file with one checkbox in it — not merely built from the documentation. The
+# bag XML, the content type and the relationship came back byte-identical.
+# Excel's own file had the extension on the default cell format, so it never
+# showed whether <extLst> may follow <alignment>; ours does, and Excel accepts
+# it. If this part ever needs changing, make another such file and diff again
+# rather than reasoning about the spec.
+#
 # ---------------------------------------------------------------------------
 # THE TRAP: CLONE THE <xf>, NEVER MUTATE IT
 # ---------------------------------------------------------------------------
