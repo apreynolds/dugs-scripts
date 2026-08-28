@@ -42,6 +42,29 @@ Other things it does:
 uv run transcript_to_tracker.py --dump-text transcript.pdf
 ```
 
+### A blank tracker, with no transcript
+
+For a colleague who would rather type a transcript in by hand than run the
+parser — and for looking at the generated workbook with the PDF side of the
+pipeline out of the picture:
+
+```bash
+uv run ~/3work/advising-scripts/blank_tracker.py \
+    -r degree-requirements/bsc-math-2020.xlsx \
+    -o student-records/NAME/tracker.xlsx -t Honours \
+    -n "Last, First" --id 1234567
+```
+
+Same workbook the full pipeline produces — same formulas, dropdowns,
+conditional formatting, requirements blocks — with an empty Courses table.
+`--rows N` sets how many blank rows to leave (default 45); `-r` repeats for
+side-by-side editions exactly as above.
+
+It is not a second-class tracker: rows typed into it read back through
+`tracker_reader` like any others, so a hand-filled one can later be passed to
+`-u` and merged with a real transcript. Only openpyxl is needed, no pdfplumber
+— a colleague can run it without the PDF stack.
+
 `uv` puts the script's own directory on `sys.path`, so the sibling imports
 resolve inside the repo while the working directory stays wherever the data
 is. Only the paths typed as *arguments* are relative to the shell.
@@ -82,9 +105,14 @@ transcript .pdf ──────> [transcript_parser] ──> course rows ┤
 existing tracker .xlsx ─> [tracker_reader] ──> advisor's edits ─┘
 ```
 
+`blank_tracker.py` is the top edge of that diagram on its own: requirements in,
+tracker out, no course rows. It calls the same `tracker_writer.build_tracker`
+with an empty row list, so there is no second generator to keep in step.
+
 | Module | Responsibility |
 |---|---|
 | `transcript_to_tracker.py` | CLI, and the merge logic |
+| `blank_tracker.py` | CLI for an empty tracker: requirements in, no transcript |
 | `transcript_parser.py` | PDF → course rows. **Change here for a new transcript format.** |
 | `requirements_io.py` | load + validate a requirements workbook |
 | `tracker_writer.py` | generate the tracker; every Excel formula lives here |
@@ -207,7 +235,8 @@ returns.
 ## Verifying a change
 
 ```bash
-for c in check_requirements check_merge check_two_editions check_formulas; do
+for c in check_requirements check_merge check_two_editions check_formulas \
+         check_blank; do
     echo "### $c"; uv run $c.py; done
 ```
 
