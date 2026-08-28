@@ -837,6 +837,34 @@ def build_tracker(path, requirement_sets, rows, student,
                                 font=OFF_FONT, stopIfTrue=True),
                 )
 
+        if block.req.constraints:
+            # A ticked constraint goes green, exactly as a met category does
+            # in the Progress column just above it — same MET_FILL/MET_FONT,
+            # so "green means satisfied" reads the same way down the whole
+            # column.
+            #
+            # Added AFTER the per-row grey rules above, so those keep the
+            # higher priority: a constraint that does not apply to the
+            # selected track stays greyed and struck through even if it was
+            # left ticked from an earlier track. (Their stopIfTrue=True is
+            # what makes that stick.)
+            tick_range = ("$" + prog_letter + "$" + str(constraints_row + 1) +
+                          ":$" + prog_letter + "$" +
+                          str(constraints_row + len(block.req.constraints)))
+            # Tested as text rather than as `=TRUE`, because the cell can hold
+            # either. The tick is WRITTEN as a boolean, and Excel coerces a
+            # dropdown pick back to one — but a hand-typed or pasted "TRUE" is
+            # a string, and in Excel a string never equals the boolean TRUE.
+            # `&""` renders both as "TRUE", which is the same tolerance
+            # tracker_reader._flag() already applies when reading flags back.
+            sheet.conditional_formatting.add(
+                tick_range,
+                FormulaRule(
+                    formula=['UPPER($' + prog_letter +
+                             str(constraints_row + 1) + '&"")="TRUE"'],
+                    fill=MET_FILL, font=MET_FONT, stopIfTrue=False),
+            )
+
         _add_block_validation(sheet, block, categories,
                               data_first_row, data_last_row,
                               cat_columns, last_category_row, first_row,
