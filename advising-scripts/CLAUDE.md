@@ -13,13 +13,31 @@ it, the invariants, the traps, and how to verify a change.
 ## Running it
 
 ```bash
-cd ~/Documents/3work/WIP-DUGS-related/advising
+cd "~/OneDrive - University of New Brunswick/TEAM Math_Stats Advising - Documents"
 
 uv run ~/3work/advising-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
     -r degree-requirements/bsc-math-2020.xlsx \
     -o student-records/NAME/tracker.xlsx -t Honours
 ```
+
+In practice Patrick runs it through `pr-transcript-to-xlsx`, a wrapper in
+`~/.config/scripts/bin` that derives everything except the degree. From inside
+a `student-records/last-first/` directory:
+
+```bash
+pr-transcript-to-xlsx -r bsc-math       # → last-first-bsc-math.xlsx
+pr-transcript-to-xlsx -u -r bsc-math    # next year: merge into it
+pr-transcript-to-xlsx -r adhoc          # → last-first-adhoc.xlsx (see below)
+pr-transcript-to-xlsx -l                # what degree keys exist
+```
+
+It finds the single PDF in the directory, resolves `bsc-math` to
+`degree-requirements/bsc-math-<year>.xlsx`, names the output after the
+directory, and never overwrites an existing tracker (it falls back to `-v1`,
+`-v2`, …). `-t`, and anything after `--`, pass straight through. That wrapper
+is a convenience only — nothing in this repo depends on it, and the full CLI
+below is what it calls.
 
 Next year, re-run with `-u` pointing at the existing tracker. Grades and new
 courses come from the transcript; the `Cat.`, `Ovr.`, `Notes` and GPA flags
@@ -41,6 +59,29 @@ Other things it does:
 # When a transcript won't parse, look at the coordinate grid first
 uv run transcript_to_tracker.py --dump-text transcript.pdf
 ```
+
+### An ad hoc tracker, with no degree requirements
+
+```bash
+uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+    student-records/NAME/transcript.pdf --ad-hoc \
+    -o student-records/NAME/NAME-adhoc.xlsx
+```
+
+The Courses table on its own: what the student has taken, with somewhere to
+flag, note and categorise it before there is a programme to measure it
+against. No requirements blocks, no track selector, a **free-text `Cat.`
+column** (there is no list of categories to offer a dropdown for), and a `Pass`
+column that starts every row at `C` for you to adjust.
+
+It is the same generator with an empty requirements list — no second code path
+— and the same workbook otherwise: same GPA formulas, same `Ovr.` semantics,
+same checkboxes, same strike-through. `blank_tracker.py --ad-hoc -o OUT.xlsx`
+gives the empty version.
+
+**`--ad-hoc` has to be typed; a missing `-r` is an error.** Same reasoning as
+the `—` sentinel in a requirements file: a forgotten flag must fail safe rather
+than quietly producing a tracker that measures the student against nothing.
 
 ### A blank tracker, with no transcript
 
@@ -239,6 +280,24 @@ The three things worth knowing:
   A BA block beside a BSc block would need two verdicts on one row and is not
   a supported layout.
 
+- **In an ad hoc tracker the `Pass` column inverts.** There is no category
+  table to look a bar up in, so the cells hold a plain editable letter (the
+  default, `C`) with a grade dropdown, and the header comment is swapped — the
+  usual one says "not for typing in", which would be exactly backwards. It is
+  the only column whose meaning differs between the two kinds of tracker.
+
+  Its category column is named **`Cat.`**, with no edition label, and that bare
+  name is the whole distinction: `tracker_reader` reads `Cat. <edition>`
+  columns into `cat_<label>` keys and this one into `cat`. The two cannot
+  collide — "Cat." does not start with "Cat. " — but the trailing space is
+  invisible in a diff, so both ends say so out loud.
+
+  **An ad hoc tracker's categories do not survive being converted to a real
+  one.** Feeding one to `-u` with a `-r` carries the grades, `Ovr.`, `Notes`
+  and gpa flags across; the ad hoc `Cat.` values are dropped, because they were
+  never category codes from any requirements file. Its own `-u --ad-hoc`
+  re-run keeps everything, which is the case that matters year to year.
+
 - **`Ovr.` is `incl.` / `excl.`** — force a course to count toward progress,
   or force it not to. It never affects GPA. `incl.` rescues any real grade
   that fell short of its bar **except F**; a blank, `W` or `IP` is not a grade
@@ -280,10 +339,32 @@ The three things worth knowing:
   the rest moved into its `Note` column, which becomes a hover tooltip.
   Growing the row hides the problem instead of showing it.
 
-- **Grey means one thing: "not on this track".** The Courses table has no
+- **A course that earns nothing is struck through.** Grey, struck-out, on the
+  `Course` and `Title` cells — no fill. The `Term` stays legible so the row
+  still reads chronologically, and `Gr.` stays bold because the grade is the
+  *reason*, not the casualty.
+
+  The condition is **the negation of the Progress test**, not a list of bad
+  grades. So it is `F` and `W`, and a `D` where the bar is `C` but not where
+  the bar is `D`, and a `C` where the bar is `B` — all of that falls out
+  rather than being enumerated, and the strike-through can never disagree with
+  the Progress column about whether a course counted. A blank or `IP` grade is
+  excluded up front: those are courses in progress, and striking them through
+  would pass a verdict on unmarked work.
+
+  Writing it the short way — `OR($E6="F",$E6="W")` — produces a workbook that
+  is well-formed, looks right on every BSc, and is wrong on the first BA row
+  with a D in it. `check_no_credit.py` pins the shape.
+
+- **Grey FILL means one thing: "not on this track".** The Courses table has no
   banded row stripes, because the stripe colour and the struck-out `OFF_FILL`
   grey were near enough identical that the second stopped registering.
   Anything new that wants a neutral fill should pick a different one.
+
+  Grey struck-out **text** is the separate, deliberate exception: it says "this
+  does not count towards the degree" in both halves of the sheet — the
+  off-track requirement rows and the no-credit course rows. Same idea, so the
+  same appearance; the fill is what stays unique.
 
 - **A category with no target gets its own colour.** A `—` category shows
   `26 ch` — a count, no denominator — on the pale blue `NO_TARGET_FILL`, and
@@ -408,7 +489,8 @@ way to know the assertion works.
 
 ```bash
 for c in check_requirements check_merge check_two_editions check_formulas \
-         check_blank check_passing_grades check_checkboxes check_no_target; do
+         check_blank check_passing_grades check_checkboxes check_no_target \
+         check_no_credit check_adhoc; do
     echo "### $c"; uv run $c.py; done
 ```
 
@@ -435,6 +517,11 @@ student — every grade A-range or `CR` — and against a transcript like that, 
 Progress column that wrongly counts failures looks identical to a correct one.
 The planted grades give the manual comparison something to disagree about.
 `check_merge.py` plants a retake for the same reason.
+
+That same workbook is the one to open for the **strike-through**: those six
+rows are exactly the set the rule has to get right, and four of them should be
+struck out (`F`, `W`, `D`, `F + incl.`) while two should not (`D + incl.`,
+`B + incl.`).
 
 ---
 
@@ -467,6 +554,16 @@ The planted grades give the manual comparison something to disagree about.
   row changes the bar with it.
 - **`gpa1`/`gpa2` showing `N/A`.** Nothing flagged yet. `0.00` would be the
   bug — see trap 2.
+- **An `A` struck through.** It has `excl.` in `Ovr.` — the advisor forced it
+  out, usually a superseded first attempt. The strike-through asks "did this
+  course earn its hours?", and an excluded one did not, whatever the grade.
+- **A `D` *not* struck through.** Either its `Pass` cell reads `D` (a BA
+  outside the major), or it has `incl.` in `Ovr.`. Both mean it counts.
+- **An ad hoc tracker's `Pass` column showing plain `C` in every row, and
+  letting you type in it.** Expected, and the only place that is true — there
+  are no categories to derive a bar from. See the bullet above.
+- **An ad hoc tracker's `Cat.` cells not offering a dropdown.** There is no
+  requirements file, so there is no list of category codes to offer.
 
 ---
 

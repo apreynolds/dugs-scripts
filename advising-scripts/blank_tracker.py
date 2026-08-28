@@ -7,10 +7,16 @@
 #   ./blank_tracker.py -r REQUIREMENTS.xlsx -o OUT.xlsx
 #   ./blank_tracker.py -r REQ-2020.xlsx -r REQ-2027.xlsx -o OUT.xlsx
 #   ./blank_tracker.py -r REQ.xlsx -t Honours -n "Last, First" --id 1234567
+#   ./blank_tracker.py --ad-hoc -o OUT.xlsx
 #   ./blank_tracker.py -h | --help
 #
 #   -r, --requirements    degree-requirements workbook; repeat the flag to put
 #                         two or more editions side by side in one tracker
+#       --ad-hoc          no requirements at all: the Courses table on its
+#                         own, with a free-text Cat. column and a passing bar
+#                         you set by hand. Needs -o, since there is no
+#                         requirements file to name the output after.
+#                         Mutually exclusive with -r
 #   -o, --output          where to write the tracker (default: alongside the
 #                         first requirements file, named <req>-blank.xlsx)
 #   -t, --track           which track to select (default: the first one the
@@ -59,8 +65,12 @@ def build_parser():
     )
     parser.add_argument(
         "-r", "--requirements", action="append", default=[], metavar="XLSX",
-        required=True,
         help="degree-requirements workbook; repeat for side-by-side editions",
+    )
+    parser.add_argument(
+        "--ad-hoc", dest="ad_hoc", action="store_true",
+        help="build a tracker with no degree requirements at all: the "
+             "Courses table on its own, free-text Cat., hand-set passing bar",
     )
     parser.add_argument("-o", "--output", metavar="XLSX",
                         help="tracker file to write")
@@ -84,6 +94,27 @@ def main(argv=None):
 
     if args.rows < 1:
         parser.error("--rows needs to be at least 1")
+
+    # Same rule as transcript_to_tracker: an ad hoc tracker is asked for, not
+    # fallen into when -r is forgotten.
+    if args.ad_hoc and args.requirements:
+        parser.error(
+            "--ad-hoc means no degree requirements, so it cannot be combined "
+            "with --requirements. Drop one."
+        )
+    if not args.requirements and not args.ad_hoc:
+        parser.error(
+            "at least one --requirements file is needed, or --ad-hoc for a "
+            "tracker with no requirements at all."
+        )
+    if args.ad_hoc and not args.output:
+        parser.error(
+            "--ad-hoc needs -o: the default output name is taken from the "
+            "requirements file, and there isn't one."
+        )
+    if args.ad_hoc and args.track:
+        print("Warning: --track is ignored with --ad-hoc; a tracker with no "
+              "requirements has no tracks.", file=sys.stderr)
 
     # --- load the requirements ----------------------------------------------
 
@@ -130,11 +161,15 @@ def main(argv=None):
     # flags, so a blank tracker needs no special handling here.
     tracker_writer.build_tracker(
         output, requirement_sets, [], student,
-        track=args.track, spare_rows=args.rows,
+        track=None if args.ad_hoc else args.track, spare_rows=args.rows,
         checkboxes=args.checkboxes,
     )
 
     print("Wrote " + str(output))
+    if args.ad_hoc:
+        print("  ad hoc: no degree requirements, no track, free-text Cat.")
+        print("  " + str(args.rows) + " blank course rows")
+        return 0
     print("  " + str(len(requirement_sets)) + " requirements edition"
           + ("s" if len(requirement_sets) != 1 else "")
           + ": " + ", ".join(labels))

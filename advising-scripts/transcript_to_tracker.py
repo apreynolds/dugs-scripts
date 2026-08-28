@@ -7,12 +7,18 @@
 #   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQUIREMENTS.xlsx -o OUT.xlsx
 #   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQ.xlsx -u EXISTING.xlsx
 #   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQ-2020.xlsx -r REQ-2027.xlsx
+#   ./transcript_to_tracker.py TRANSCRIPT.pdf --ad-hoc -o OUT.xlsx
 #   ./transcript_to_tracker.py --dump-text TRANSCRIPT.pdf
 #   ./transcript_to_tracker.py -h | --help
 #
 #   TRANSCRIPT.pdf        text-based transcript PDF (not a scan)
 #   -r, --requirements    degree-requirements workbook; repeat the flag to put
 #                         two or more editions side by side in one tracker
+#       --ad-hoc          no requirements at all: the Courses table on its
+#                         own, with a free-text Cat. column and a passing bar
+#                         you set by hand. For looking at what a student has
+#                         taken before there is a programme to measure it
+#                         against. Mutually exclusive with -r
 #   -o, --output          where to write the tracker (default: alongside the
 #                         transcript, named <transcript>-tracker.xlsx)
 #   -u, --update          an existing tracker to merge into. Grades and new
@@ -198,6 +204,11 @@ def build_parser():
         "-r", "--requirements", action="append", default=[], metavar="XLSX",
         help="degree-requirements workbook; repeat for side-by-side editions",
     )
+    parser.add_argument(
+        "--ad-hoc", dest="ad_hoc", action="store_true",
+        help="build a tracker with no degree requirements at all: the "
+             "Courses table on its own, free-text Cat., hand-set passing bar",
+    )
     parser.add_argument("-o", "--output", metavar="XLSX",
                         help="tracker file to write")
     parser.add_argument("-u", "--update", metavar="XLSX",
@@ -229,12 +240,26 @@ def main(argv=None):
         dump_text(transcript_path)
         return 0
 
-    if not args.requirements:
+    # An ad hoc tracker has to be ASKED for, never fallen into. Treating a
+    # missing -r as "ad hoc" would turn a typo in a path — or a forgotten
+    # flag — into a tracker that silently measures the student against
+    # nothing, which is the same failure mode the requirements loader guards
+    # against by making "no target" a dash you have to type.
+    if args.ad_hoc and args.requirements:
+        parser.error(
+            "--ad-hoc means no degree requirements, so it cannot be combined "
+            "with --requirements. Drop one."
+        )
+    if not args.requirements and not args.ad_hoc:
         parser.error(
             "at least one --requirements file is needed — the .xlsx for "
             "the student's programme and calendar year, from the advising "
-            "folder's degree-requirements/ directory."
+            "folder's degree-requirements/ directory. Or pass --ad-hoc for a "
+            "tracker with no requirements at all."
         )
+    if args.ad_hoc and args.track:
+        print("Warning: --track is ignored with --ad-hoc; a tracker with no "
+              "requirements has no tracks.", file=sys.stderr)
 
     # --- load inputs --------------------------------------------------------
 
@@ -277,7 +302,7 @@ def main(argv=None):
     # --- merge with an existing tracker, if given ---------------------------
 
     existing_rows = []
-    track = args.track
+    track = None if args.ad_hoc else args.track
 
     if args.update:
         try:
@@ -295,7 +320,7 @@ def main(argv=None):
             student["name"] = existing["student"]["name"]
         if existing["student"].get("id"):
             student["id"] = existing["student"]["id"]
-        if not track:
+        if not track and not args.ad_hoc:
             track = existing.get("track") or None
 
     rows, report = merge(existing_rows, transcript_rows, requirement_sets)
@@ -327,6 +352,10 @@ def main(argv=None):
     if report["categorized"]:
         print("  auto-assigned " + str(report["categorized"]) +
               " category cells")
+
+    if args.ad_hoc:
+        print("  ad hoc: no degree requirements, so nothing was "
+              "auto-categorized and nothing is measured against a target")
 
     blank = sum(
         1 for row in rows

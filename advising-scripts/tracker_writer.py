@@ -45,7 +45,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.formatting.rule import FormulaRule
 
 import checkbox_xlsx
-from requirements_io import GRADE_RANK
+from requirements_io import DEFAULT_PASS_GRADE, GRADE_RANK
 
 SHEET_NAME = "Tracker"
 HIDDEN_SHEET_NAME = "_TrackData"
@@ -139,6 +139,17 @@ OFF_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
                        bgColor="FFE7E6E6")
 OFF_FONT = Font(color="FF7F7F7F", strike=True)
 
+# A course that earns no credit — failed, withdrawn, below its category's bar,
+# or excluded by hand. Deliberately the SAME grey strike-through as OFF_FONT,
+# and deliberately with NO fill.
+#
+# The two say the same thing in the two halves of the sheet: struck-out grey
+# TEXT means "this does not count towards the degree". What stays unique to
+# the requirements block is the grey FILL, which still means "not on this
+# track" and nothing else — so the rule in CLAUDE.md is about OFF_FILL, and
+# this rule adds no new colour to the workbook.
+NO_CREDIT_FONT = Font(color="FF7F7F7F", strike=True)
+
 # A category with no target — a catch-all like FreeElec. Informational, not a
 # verdict, so it needs a THIRD colour of its own. Grey is spoken for ("not on
 # this track" and nothing else), and simply leaving the cell unfilled is not
@@ -184,6 +195,27 @@ EXCL_FONT = Font(color="FF9C0006")
 # or 1 and can be multiplied like a boolean.
 
 
+def _grade_ladder(reference):
+    """Ordinal rank of whatever `reference` names, as a sum of comparisons.
+
+    The one grade ladder in the workbook, used from two quite different
+    places:
+
+      _grade_rank("Gr.")   a whole COLUMN, inside SUMPRODUCT
+      _grade_rank_cell()   a single CELL, inside a conditional format
+
+    They are written the same way for different reasons. In SUMPRODUCT it is
+    the array-safety rule above. In a conditional format it is because CF
+    formulas do not accept array constants at all — `MATCH($E6,{"D","C",...})`
+    makes Excel repair the file and discard every rule on the sheet (trap 1).
+    Neither place can use the compact idiom, so neither does.
+    """
+    return "(" + "+".join(
+        "(" + reference + '="' + grade + '")*' + str(GRADE_RANK[grade])
+        for grade in reversed(RANKED_GRADES)
+    ) + ")"
+
+
 def _grade_rank(column_name):
     """Array-safe ordinal rank of a grade column. Yields 0 for anything
     off the ladder — F, W, IP, CR and blank.
@@ -193,11 +225,18 @@ def _grade_rank(column_name):
     (Courses[Pass]). Comparing two of these keeps both sides elementwise,
     which is what a lookup inlined into the SUMPRODUCT would destroy.
     """
-    return "(" + "+".join(
-        "(Courses[" + column_name + ']="' + grade + '")*' +
-        str(GRADE_RANK[grade])
-        for grade in reversed(RANKED_GRADES)
-    ) + ")"
+    return _grade_ladder("Courses[" + column_name + "]")
+
+
+def _grade_rank_cell(reference):
+    """Ordinal rank of ONE grade cell, e.g. "$E6".
+
+    The scalar twin of _grade_rank, for conditional-formatting formulas. Pass
+    a column-absolute, ROW-RELATIVE reference: a CF formula is written for the
+    top-left cell of its range and re-evaluated relatively, so "$E$6" would
+    make every row in the range test row 6's grade.
+    """
+    return _grade_ladder(reference)
 
 
 def _grade_points():
@@ -241,12 +280,22 @@ class Block:
 COURSES_LEADING = ["Term", "Course", "Title", "CH", "Gr.", PASS_COLUMN, "Ovr."]
 COURSES_TRAILING = ["Notes", "gpa1", "gpa2"]
 
+# The Cat. column of an ad hoc tracker — one built with no requirements file at
+# all, to look at what a student has taken before there is a programme to
+# measure it against.
+#
+# Named WITHOUT an edition label, and that is the whole distinction: every
+# other Cat. column is "Cat. <edition>", so the bare name says "these
+# categories are yours, not a requirements file's". tracker_reader keys on the
+# same difference, reading this one back as "cat" rather than "cat_<label>".
+AD_HOC_CAT_COLUMN = "Cat."
+
 
 def _courses_columns(blocks):
     """Column headings for the Courses table, in order."""
-    return (list(COURSES_LEADING)
-            + [block.cat_column_name for block in blocks]
-            + list(COURSES_TRAILING))
+    cat_columns = ([block.cat_column_name for block in blocks]
+                   or [AD_HOC_CAT_COLUMN])
+    return list(COURSES_LEADING) + cat_columns + list(COURSES_TRAILING)
 
 
 def _truthy(column_name):
@@ -397,6 +446,8 @@ def common_tracks(requirement_sets):
     warns about anything dropped, so a missing "Co-op" is explained rather
     than mysterious.
     """
+    if not requirement_sets:
+        return []   # an ad hoc tracker has no programme, so no tracks
     shared = set(requirement_sets[0].tracks)
     for requirements in requirement_sets[1:]:
         shared &= set(requirements.tracks)
@@ -439,9 +490,13 @@ def build_tracker(path, requirement_sets, rows, student,
                   track=None, spare_rows=15, checkboxes=True):
     """Generate the tracker workbook.
 
-    requirement_sets — list of Requirements objects, one per edition
+    requirement_sets — list of Requirements objects, one per edition. EMPTY
+                      builds an ad hoc tracker: the Courses table alone, with
+                      a free-text Cat. column, no requirements blocks, no
+                      track selector, and a hand-editable passing bar.
     rows            — list of course dicts (term/course/title/grade/hours,
-                      plus optional cat_<edition>/ovr/notes/gpa1/gpa2)
+                      plus optional cat_<edition> — or "cat" for an ad hoc
+                      tracker — and ovr/notes/gpa1/gpa2)
     student         — dict with 'name', 'id'
     track           — which track to preselect in B3
     spare_rows      — blank rows left at the foot of the Courses table so an
@@ -462,7 +517,9 @@ def build_tracker(path, requirement_sets, rows, student,
     # Courses table is COURSES_LEADING + one Cat. column per edition +
     # COURSES_TRAILING, then one blank spacer column before the first
     # requirements block.
-    courses_width = (len(COURSES_LEADING) + len(requirement_sets)
+    # One Cat. column per edition — or, with no editions at all, the single
+    # ad hoc one, so the table keeps its shape either way.
+    courses_width = (len(COURSES_LEADING) + max(len(requirement_sets), 1)
                      + len(COURSES_TRAILING))
     first_block_column = courses_width + 2
 
@@ -485,9 +542,13 @@ def build_tracker(path, requirement_sets, rows, student,
     data_last_row = data_first_row + max(len(rows) + spare_rows, 20) - 1
 
     tracks = common_tracks(requirement_sets)
-    chosen_track = track if track in tracks else tracks[0]
+    chosen_track = (track if track in tracks
+                    else (tracks[0] if tracks else ""))
 
-    positions = _write_hidden_track_data(workbook, blocks)
+    # Skipped entirely for an ad hoc tracker: with no blocks the lookup tables
+    # would be empty, and an empty hidden sheet is just a thing to wonder
+    # about later.
+    positions = _write_hidden_track_data(workbook, blocks) if blocks else {}
 
     # --- top section --------------------------------------------------------
 
@@ -495,16 +556,27 @@ def build_tracker(path, requirement_sets, rows, student,
     sheet["B1"] = student.get("name", "")
     sheet["A2"] = "ID"
     sheet["B2"] = student.get("id", "")
-    sheet["A3"] = "Track"
-    sheet["B3"] = chosen_track
 
-    for address in ("A1", "A2", "A3"):
+    identity_cells = ["A1", "A2"]
+    value_cells = ["B1", "B2"]
+
+    # No requirements means no tracks, so row 3 gets no selector. Leaving a
+    # "Track" label above an empty unvalidated cell would advertise a control
+    # that does nothing — every formula that reads B3 lives in a requirements
+    # block, and there are none.
+    if blocks:
+        sheet["A3"] = "Track"
+        sheet["B3"] = chosen_track
+        identity_cells.append("A3")
+        value_cells.append("B3")
+        sheet["B3"].alignment = Alignment(horizontal="center")
+
+    for address in identity_cells:
         sheet[address].font = LABEL_FONT
-    for address in ("B1", "B2", "B3"):
+    for address in value_cells:
         sheet[address].font = VALUE_FONT
     sheet["B1"].alignment = Alignment(horizontal="left")
     sheet["B2"].alignment = Alignment(horizontal="center")
-    sheet["B3"].alignment = Alignment(horizontal="center")
 
     sheet["C3"] = "Overall GPA"
     sheet["C3"].font = LABEL_FONT
@@ -513,6 +585,21 @@ def build_tracker(path, requirement_sets, rows, student,
     sheet["D3"].font = VALUE_FONT
     sheet["D3"].alignment = Alignment(horizontal="center")
     sheet["D3"].number_format = "0.00"
+
+    if not blocks:
+        # The one number an ad hoc tracker can still honestly report. Every
+        # other total in this workbook is "x of the y your programme wants",
+        # and there is no y — but "hours banked so far" needs no programme,
+        # only the Pass column beside each grade.
+        #
+        # NOT in B3, which tracker_reader reads as the selected track: a
+        # number there would come back as a track name on a later merge.
+        sheet["C2"] = "CH earned"
+        sheet["C2"].font = LABEL_FONT
+        sheet["C2"].alignment = Alignment(horizontal="right")
+        sheet["D2"] = "=" + _progress_expression(AD_HOC_CAT_COLUMN)
+        sheet["D2"].font = VALUE_FONT
+        sheet["D2"].alignment = Alignment(horizontal="center")
 
     # The two sub-GPA readouts sit directly above the flag columns that drive
     # them, so it is obvious which column feeds which number.
@@ -546,6 +633,12 @@ def build_tracker(path, requirement_sets, rows, student,
     for block in blocks:
         cat_columns[block.cat_column_name] = \
             headings.index(block.cat_column_name) + 1
+    if not blocks:
+        # The ad hoc column is a Cat. column for every purpose except having a
+        # requirements block behind it, so it goes in the same dict and picks
+        # up the same centring and width without a second code path.
+        cat_columns[AD_HOC_CAT_COLUMN] = \
+            headings.index(AD_HOC_CAT_COLUMN) + 1
 
     for offset, row in enumerate(rows):
         excel_row = data_first_row + offset
@@ -562,6 +655,12 @@ def build_tracker(path, requirement_sets, rows, student,
             sheet.cell(row=excel_row,
                        column=cat_columns[block.cat_column_name],
                        value=row.get(key, ""))
+        if not blocks:
+            # Read back under the same key by tracker_reader, so an ad hoc
+            # tracker survives its own -u re-run.
+            sheet.cell(row=excel_row,
+                       column=cat_columns[AD_HOC_CAT_COLUMN],
+                       value=row.get("cat", ""))
         sheet.cell(row=excel_row, column=headings.index("Notes") + 1,
                    value=row.get("notes", ""))
         sheet.cell(row=excel_row, column=gpa1_col,
@@ -590,29 +689,40 @@ def build_tracker(path, requirement_sets, rows, student,
     # calendar years of one degree, whose bars agree. A BA block beside a BSc
     # block would need two different verdicts on the same row, and is not a
     # supported layout.
-    primary = blocks[0]
     block_first_row = 6
-    primary_last_cat = (block_first_row
-                        + len(primary.req.categories) - 1)
-    pass_range = ("$" + primary.letter(primary.col_pass) + "$" +
-                  str(block_first_row) + ":$" +
-                  primary.letter(primary.col_pass) + "$" +
-                  str(primary_last_cat))
-    code_range = ("$" + primary.letter(primary.col_category) + "$" +
-                  str(block_first_row) + ":$" +
-                  primary.letter(primary.col_category) + "$" +
-                  str(primary_last_cat))
-    courses_cat_letter = get_column_letter(
-        cat_columns[primary.cat_column_name])
 
-    for excel_row in range(data_first_row, data_last_row + 1):
-        # An uncategorised row still needs a bar to clear: the block TOTAL
-        # counts those rows, and a blank cell here would rank 0 and wave
-        # everything through. Hence the default as the IFERROR fallback.
-        sheet.cell(row=excel_row, column=pass_col, value=(
-            "=IFERROR(INDEX(" + pass_range + ",MATCH($" +
-            courses_cat_letter + str(excel_row) + "," + code_range +
-            ',0)),"' + primary.req.default_pass_grade + '")'))
+    if not blocks:
+        # An ad hoc tracker has no category table to look the bar up IN, so
+        # these cells hold a plain letter instead of a formula — the default,
+        # editable, with a dropdown to keep it on the ladder. It is the one
+        # column that changes meaning between the two kinds of tracker: here
+        # it is entered rather than derived, and its header note says so.
+        for excel_row in range(data_first_row, data_last_row + 1):
+            sheet.cell(row=excel_row, column=pass_col,
+                       value=DEFAULT_PASS_GRADE)
+    else:
+        primary = blocks[0]
+        primary_last_cat = (block_first_row
+                            + len(primary.req.categories) - 1)
+        pass_range = ("$" + primary.letter(primary.col_pass) + "$" +
+                      str(block_first_row) + ":$" +
+                      primary.letter(primary.col_pass) + "$" +
+                      str(primary_last_cat))
+        code_range = ("$" + primary.letter(primary.col_category) + "$" +
+                      str(block_first_row) + ":$" +
+                      primary.letter(primary.col_category) + "$" +
+                      str(primary_last_cat))
+        courses_cat_letter = get_column_letter(
+            cat_columns[primary.cat_column_name])
+
+        for excel_row in range(data_first_row, data_last_row + 1):
+            # An uncategorised row still needs a bar to clear: the block TOTAL
+            # counts those rows, and a blank cell here would rank 0 and wave
+            # everything through. Hence the default as the IFERROR fallback.
+            sheet.cell(row=excel_row, column=pass_col, value=(
+                "=IFERROR(INDEX(" + pass_range + ",MATCH($" +
+                courses_cat_letter + str(excel_row) + "," + code_range +
+                ',0)),"' + primary.req.default_pass_grade + '")'))
 
     for excel_row in range(data_first_row, data_last_row + 1):
         for column_index in range(1, len(headings) + 1):
@@ -660,6 +770,45 @@ def build_tracker(path, requirement_sets, rows, student,
                          value + '"'],
                 fill=fill, font=font, stopIfTrue=False),
         )
+
+    # --- strike out the courses that earn nothing ---------------------------
+    #
+    # Grey and struck through, on the Course and Title cells only: the Term
+    # stays legible so the row still reads chronologically, and the grade
+    # stays bold because the grade is the REASON, not the casualty.
+    #
+    # The condition is not a list of bad grades. It is the exact negation of
+    # the rule the Progress column already uses — "this course did not earn
+    # its credit hours" — so the two can never disagree, and it stays right
+    # for a category whose bar is D (a D is not struck out) or B (a C is).
+    # That is what makes "F and W, plus D where the bar is C" fall out of it
+    # rather than being enumerated.
+    #
+    # A blank or IP grade is excluded up front. Those are courses in progress
+    # or planned, not courses that failed to count, and striking them through
+    # would read as a verdict on work that hasn't been marked yet.
+    grade_ref = "$" + get_column_letter(grade_col) + str(data_first_row)
+    pass_ref = "$" + get_column_letter(pass_col) + str(data_first_row)
+    ovr_ref = "$" + ovr_letter + str(data_first_row)
+    rank = _grade_rank_cell(grade_ref)
+    bar = _grade_rank_cell(pass_ref)
+
+    # The same two terms as _passing_expression, written for one row.
+    met = ("AND(OR(" + rank + ">=" + bar + "," + grade_ref + '="CR"),'
+           + ovr_ref + "<>" + OVR_EXCLUDE_Q + ")")
+    rescue = ("AND(" + rank + ">0," + rank + "<" + bar + ","
+              + ovr_ref + "=" + OVR_INCLUDE_Q + ")")
+    no_credit = ("AND(" + grade_ref + '<>"",' + grade_ref + '<>"IP",'
+                 "NOT(OR(" + met + "," + rescue + ")))")
+
+    course_letter = get_column_letter(headings.index("Course") + 1)
+    title_letter = get_column_letter(headings.index("Title") + 1)
+    sheet.conditional_formatting.add(
+        "$" + course_letter + "$" + str(data_first_row) +
+        ":$" + title_letter + "$" + str(data_last_row),
+        FormulaRule(formula=[no_credit], font=NO_CREDIT_FONT,
+                    stopIfTrue=False),
+    )
 
     # --- requirements blocks ------------------------------------------------
 
@@ -906,7 +1055,8 @@ def build_tracker(path, requirement_sets, rows, student,
                               constraints_row)
 
     _add_courses_validation(sheet, headings, data_first_row, data_last_row,
-                            gpa1_col, gpa2_col, tracks, checkboxes)
+                            gpa1_col, gpa2_col, tracks, checkboxes,
+                            ad_hoc=not blocks)
     _set_widths(sheet, headings, blocks)
 
     sheet.freeze_panes = "A6"
@@ -960,8 +1110,14 @@ def _add_block_validation(sheet, block, categories, data_first_row,
 
 
 def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
-                            gpa1_col, gpa2_col, tracks, checkboxes=False):
-    """Dropdowns on the Courses table and the track selector."""
+                            gpa1_col, gpa2_col, tracks, checkboxes=False,
+                            ad_hoc=False):
+    """Dropdowns on the Courses table and the track selector.
+
+    ad_hoc — no requirements file behind this tracker, so the Cat. column gets
+    no dropdown (there is no list of categories to offer) and the Pass column
+    gets one (it is typed rather than derived).
+    """
     grade = DataValidation(
         type="list", formula1='"' + ",".join(GRADE_CHOICES) + '"',
         allowBlank=True, showErrorMessage=True, errorTitle="Invalid grade",
@@ -1005,17 +1161,45 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
     sheet[ovr_letter + "5"].comment = override_note
 
     pass_letter = get_column_letter(headings.index(PASS_COLUMN) + 1)
-    pass_note = Comment(
-        "Lowest grade that earns credit in this course's category.\n\n"
-        "Filled in automatically from the Cat. column, so it changes when you "
-        "recategorise a course. Set per category in the requirements file — "
-        "that is how a BA can accept a D outside the major while a BSc "
-        "accepts none.\n\n"
-        "Not for typing in: overwriting the formula fixes the bar for that "
-        "row. Use Ovr. to make an exception.",
-        "Degree requirements")
+    if ad_hoc:
+        # In an ad hoc tracker this column is the OPPOSITE of what it is
+        # everywhere else: there is no requirements file to derive it from, so
+        # it is typed. Saying "not for typing in" here would be exactly wrong,
+        # which is why the note is swapped rather than shared.
+        pass_note = Comment(
+            "Lowest grade that earns credit in this course.\n\n"
+            "Yours to set. Every row starts at " + DEFAULT_PASS_GRADE +
+            "; change any of them — a\n"
+            "programme that accepts a D outside the major, say — and the "
+            "strike-through and the CH earned total follow.\n\n"
+            "Use Ovr. for a one-off exception you would rather not turn into "
+            "a rule.",
+            "Ad hoc tracker")
+        pass_note.height = 170
+        grades = DataValidation(
+            type="list",
+            formula1='"' + ",".join(reversed(RANKED_GRADES)) + '"',
+            allowBlank=True, showErrorMessage=True,
+            errorTitle="Invalid passing grade",
+            error="The bar must be one of: " + ", ".join(reversed(RANKED_GRADES))
+                  + ". F is not offered — it ranks below every grade, so a bar "
+                    "of F would wave through blanks and failures alike.",
+        )
+        sheet.add_data_validation(grades)
+        grades.add(pass_letter + str(data_first_row) + ":" +
+                   pass_letter + str(data_last_row))
+    else:
+        pass_note = Comment(
+            "Lowest grade that earns credit in this course's category.\n\n"
+            "Filled in automatically from the Cat. column, so it changes when "
+            "you recategorise a course. Set per category in the requirements "
+            "file — that is how a BA can accept a D outside the major while a "
+            "BSc accepts none.\n\n"
+            "Not for typing in: overwriting the formula fixes the bar for "
+            "that row. Use Ovr. to make an exception.",
+            "Degree requirements")
+        pass_note.height = 170
     pass_note.width = 360
-    pass_note.height = 170
     sheet[pass_letter + "5"].comment = pass_note
 
     # A checkbox already constrains the cell to TRUE/FALSE, and a dropdown
@@ -1032,13 +1216,16 @@ def _add_courses_validation(sheet, headings, data_first_row, data_last_row,
             flags.add(letter + str(data_first_row) + ":" +
                       letter + str(data_last_row))
 
-    track = DataValidation(
-        type="list", formula1='"' + ",".join(tracks) + '"',
-        allowBlank=False, showErrorMessage=True, errorTitle="Unknown track",
-        error="Track must be one of: " + ", ".join(tracks),
-    )
-    sheet.add_data_validation(track)
-    track.add("B3")
+    # No requirements means no tracks and no B3 selector to validate.
+    if tracks:
+        track = DataValidation(
+            type="list", formula1='"' + ",".join(tracks) + '"',
+            allowBlank=False, showErrorMessage=True,
+            errorTitle="Unknown track",
+            error="Track must be one of: " + ", ".join(tracks),
+        )
+        sheet.add_data_validation(track)
+        track.add("B3")
 
 
 def _set_widths(sheet, headings, blocks):

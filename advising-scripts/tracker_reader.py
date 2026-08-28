@@ -24,6 +24,14 @@ import openpyxl
 
 CAT_PREFIX = "Cat. "
 
+# An ad hoc tracker — one generated with no requirements file — labels its
+# category column with the bare "Cat.", because the categories in it are the
+# advisor's own rather than a requirements file's. It reads back under the key
+# "cat", which is deliberately NOT one of the "cat_<label>" keys: those are
+# matched against an edition, and this one has no edition to match.
+AD_HOC_CAT_COLUMN = "Cat."
+AD_HOC_CAT_KEY = "cat"
+
 
 class TrackerReadError(Exception):
     """Raised when a file doesn't look like a tracker we generated."""
@@ -109,6 +117,10 @@ def read_tracker(path):
 
     cat_columns = {name: column for name, column in headings.items()
                    if name.startswith(CAT_PREFIX)}
+    # "Cat." does not start with "Cat. ", so the two cannot collide — but be
+    # explicit about it rather than leaving it to a trailing space nobody can
+    # see in a diff.
+    ad_hoc_cat_column = headings.get(AD_HOC_CAT_COLUMN)
 
     rows = []
     for excel_row in range(header_row + 1, sheet.max_row + 1):
@@ -141,6 +153,9 @@ def read_tracker(path):
             label = name[len(CAT_PREFIX):]
             row["cat_" + label] = _text(
                 sheet.cell(row=excel_row, column=column).value)
+        if ad_hoc_cat_column is not None:
+            row[AD_HOC_CAT_KEY] = _text(
+                sheet.cell(row=excel_row, column=ad_hoc_cat_column).value)
         rows.append(row)
 
     student = {
