@@ -194,6 +194,19 @@ def _read_constraints(sheet):
                     number = sheet.cell(row=probe, column=column).value
                     if number is None or _text(number) == "":
                         break
+                    # +3 is Block.col_progress, the "Completed" column, where
+                    # the ticks are written. It is the ONE place in this
+                    # codebase that assumes the requirements block's geometry
+                    # rather than resolving it by name — and because the whole
+                    # function is wrapped in a bare except below, getting it
+                    # wrong loses every tick SILENTLY rather than failing.
+                    #
+                    # So col_progress must stay at col_category + 3. Columns
+                    # may be added after it (Planned was) or hidden before it
+                    # (Req. CH is), but not inserted ahead of it.
+                    # check_planned.py asserts the ticks survive, so a future
+                    # insertion is caught here rather than in a stripped
+                    # workbook a year later.
                     ticks.append(_flag(
                         sheet.cell(row=probe, column=column + 3).value))
                     probe += 1

@@ -187,8 +187,9 @@ def check_tracker(work, ba, failures):
     else:
         print("   OK  Pass sits between Gr. and Ovr.")
 
-    # The block's hidden bar column — Block.col_pass, five to the right of the
-    # category column, which row 4 names.
+    # The block's hidden bar column — Block.col_pass, SEVEN to the right of
+    # the category column, which row 4 names. (Five until the Planned column
+    # and its numeric helper landed between them.)
     block_col = None
     for column in range(1, sheet.max_column + 1):
         value = str(sheet.cell(row=4, column=column).value or "")
@@ -203,7 +204,7 @@ def check_tracker(work, ba, failures):
     for row in range(6, 6 + len(ba.categories)):
         code = sheet.cell(row=row, column=block_col).value
         if code:
-            written[code] = sheet.cell(row=row, column=block_col + 5).value
+            written[code] = sheet.cell(row=row, column=block_col + 7).value
     if written != BA_EXPECTED_BARS:
         failing("the block's bar column holds " + repr(written), failures)
     else:
@@ -211,7 +212,7 @@ def check_tracker(work, ba, failures):
               str(len(written)) + " categories)")
 
     if not sheet.column_dimensions[
-            openpyxl.utils.get_column_letter(block_col + 5)].hidden:
+            openpyxl.utils.get_column_letter(block_col + 7)].hidden:
         failing("the block's bar column is not hidden", failures)
 
     # The Pass cells must be a lookup, not a typed-in letter: the bar has to

@@ -63,6 +63,25 @@ def counts_toward_progress(row, bar):
     return rank > 0 and override == "incl."
 
 
+def counts_as_planned(row):
+    """Mirror of the Planned SUMPRODUCT's inner test.
+
+    A blank grade is a course registered or intended; "IP" is one in progress
+    this term. Neither has been marked, so neither has earned anything — but
+    both are hours the student is on course to hold, which is what the Planned
+    column reports.
+
+    "excl." takes a row out here exactly as it does for Progress. "incl." does
+    nothing: it rescues a real grade that fell short, and a blank is not a
+    grade.
+    """
+    grade = row["grade"]
+    override = (row.get("ovr") or "").lower()
+    if override == "excl.":
+        return False
+    return grade in ("", "IP")
+
+
 def gpa(rows, flag=None):
     numerator = 0.0
     denominator = 0.0
@@ -101,7 +120,8 @@ def main():
     print("  gpa2            :", gpa(rows, "gpa2"))
     print()
 
-    print("Expected Progress column (earned / required):")
+    print("Expected Completed / Planned columns "
+          "(earned, then earned+planned, over required):")
     total_required = req.totals[track]
     fixed_sum = 0
     lines = []
@@ -112,32 +132,45 @@ def main():
         if required is not None:
             fixed_sum += required
         bar = req.pass_grade_for(category.code)
-        earned = sum(
-            r["hours"] or 0 for r in rows
-            if r.get("cat_" + label) == category.code
-            and counts_toward_progress(r, bar)
-        )
-        lines.append((category.code, earned, required, bar))
+        in_category = [r for r in rows
+                       if r.get("cat_" + label) == category.code]
+        earned = sum(r["hours"] or 0 for r in in_category
+                     if counts_toward_progress(r, bar))
+        planned = sum(r["hours"] or 0 for r in in_category
+                      if counts_as_planned(r))
+        lines.append((category.code, earned, planned, required, bar))
 
-    for code, earned, required, bar in lines:
+    for code, earned, planned, required, bar in lines:
         if required is None:
             # Rendered the way the tracker renders it: a count, no
             # denominator, and no verdict either way.
-            print("  {:10s} {:>3d} ch        (pass {})  (no target)".format(
-                code, int(earned), bar))
+            print("  {:10s} {:>3d} ch        {:>3d} ch        "
+                  "(pass {})  (no target)".format(
+                      code, int(earned), int(earned + planned), bar))
             continue
         met = "  <- met" if required > 0 and earned >= required else ""
+        # Amber in the tracker: not met today, met once the plan lands. The
+        # "earned < required" bound is what keeps it off the rows that are
+        # already green.
+        if required > 0 and earned < required \
+                and earned + planned >= required:
+            met = "  <- on plan"
         greyed = "  (not on this track)" if required == 0 else ""
-        print("  {:10s} {:>3d} / {:<3d} ch  (pass {}){}{}".format(
-            code, int(earned), int(required), bar, met, greyed))
+        print("  {:10s} {:>3d} / {:<3d} ch  {:>3d} / {:<3d} ch  "
+              "(pass {}){}{}".format(
+                  code, int(earned), int(required),
+                  int(earned + planned), int(required), bar, met, greyed))
 
     # The TOTAL row is not filtered by category, so every row is measured
     # against its own bar — including the uncategorised ones, which fall back
     # to the file's default.
     grand_earned = sum(r["hours"] or 0 for r in rows
                        if counts_toward_progress(r, bar_for(r, req, label)))
-    print("  {:10s} {:>3d} / {:<3d} ch".format(
-        "TOTAL", int(grand_earned), int(total_required)))
+    grand_planned = sum(r["hours"] or 0 for r in rows
+                        if counts_as_planned(r))
+    print("  {:10s} {:>3d} / {:<3d} ch  {:>3d} / {:<3d} ch".format(
+        "TOTAL", int(grand_earned), int(total_required),
+        int(grand_earned + grand_planned), int(total_required)))
     print()
     # The categories are no longer expected to reconcile to the total — the
     # difference IS the free electives. What must still hold is that they do

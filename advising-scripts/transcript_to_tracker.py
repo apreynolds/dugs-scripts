@@ -97,7 +97,7 @@ def merge(existing_rows, transcript_rows, requirement_sets):
     tell the advisor rather than changing their file silently.
     """
     report = {"added": 0, "updated": 0, "kept": 0, "categorized": 0,
-              "grade_changes": [], "kept_rows": []}
+              "grade_changes": [], "kept_rows": [], "kept_planned": []}
 
     by_key = {}
     order = []
@@ -154,8 +154,16 @@ def merge(existing_rows, transcript_rows, requirement_sets):
             # than this transcript.
             if existing_rows:
                 report["kept"] += 1
-                report["kept_rows"].append(
-                    (key[0], row.get("course") or row.get("title")))
+                # Split by grade. A row with no grade yet is a PLANNED course
+                # the advisor typed in — expected, and now counted in the
+                # tracker's Planned column. A row that carries a grade and has
+                # vanished from the transcript is a different thing entirely,
+                # and worth looking at. Same rows as before, two headings.
+                entry = (key[0], row.get("course") or row.get("title"))
+                if row.get("grade", "") in ("", "IP"):
+                    report["kept_planned"].append(entry)
+                else:
+                    report["kept_rows"].append(entry)
 
     rows = [by_key[key] for key in order]
     rows.sort(key=sort_key)
@@ -372,10 +380,17 @@ def main(argv=None):
         for term, course, old, new in report["grade_changes"]:
             print("    " + term + "  " + str(course) + "  " + old + " -> " + new)
 
+    if report["kept_planned"]:
+        print()
+        print("  Planned (no grade yet — these are counted in the tracker's "
+              "Planned column):")
+        for term, course in report["kept_planned"]:
+            print("    " + term + "  " + str(course))
+
     if report["kept_rows"]:
         print()
-        print("  Kept (in the tracker but not in this transcript — planned "
-              "courses, or dropped ones worth keeping visible):")
+        print("  Kept, but no longer on the transcript (they carry a grade, "
+              "so this is worth a look):")
         for term, course in report["kept_rows"]:
             print("    " + term + "  " + str(course))
 

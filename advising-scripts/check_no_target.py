@@ -49,6 +49,7 @@ DISTINCT_FILLS = {
     "off-track (grey)": "FFE7E6E6",
     "excluded (red)": "FFFFC7CE",
     "no target (blue)": "FFDDEBF7",
+    "on plan (amber)": "FFFFEB9C",
 }
 
 
@@ -279,15 +280,22 @@ def _check_rules(tracker, failures):
     # The guard that cannot be checked any other way. Without it the "met"
     # rule fires on a text Req. CH cell, because Excel sorts text above every
     # number — and the generated XML looks perfectly well-formed either way.
+    #
+    # This now matches TWO rules: "met" on the Completed column and the amber
+    # "the plan closes this" rule on Planned. Both compare against Req. CH, so
+    # both need the guard, and requiring it of every match is the point rather
+    # than a looseness in the filter.
     met = [f for f in formulas if "&gt;=" in f and "$O" in f]
-    if not met:
-        failing("could not find the 'met' rule in the generated XML",
+    if len(met) < 2:
+        failing("expected both the 'met' and the 'on plan' rules to compare "
+                "against Req. CH; found " + str(len(met)) + ": " + repr(met),
                 failures)
     elif not all("ISNUMBER" in f for f in met):
-        failing("the 'met' rule has no ISNUMBER guard, so it will fire on a "
-                "no-target row: " + repr(met), failures)
+        failing("a rule comparing against Req. CH has no ISNUMBER guard, so "
+                "it will fire on a no-target row: " + repr(met), failures)
     else:
-        print("   OK  the 'met' rule is guarded by ISNUMBER")
+        print("   OK  both rules comparing against Req. CH are guarded by "
+              "ISNUMBER")
 
     off = [f for f in formulas if "=0)" in f or f.endswith("=0")]
     if not off:

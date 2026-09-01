@@ -20,8 +20,19 @@
 #   row 2   ID     <id>                      ... gpa1 / gpa2 labels
 #   row 3   Track  <dropdown>  Overall GPA <v> ... gpa1 / gpa2 values
 #   row 4                                    DEGREE REQUIREMENTS (<edition>)
-#   row 5   Courses table header             Category|Description|Req.CH|Progress
+#   row 5   Courses table header             Category|Description|Completed|Planned
 #   row 6+  course rows                      category rows, TOTAL, CONSTRAINTS
+#
+# The requirements block also carries four HIDDEN columns: Req. CH (the
+# track lookup every conditional-formatting rule tests), the two numeric
+# helpers behind Completed and Planned, and each category's passing bar.
+#
+# "Completed" is hours banked. "Planned" is the projected figure — banked
+# plus every course filed here that has no grade yet — over the same
+# requirement, so "will this be met?" needs no arithmetic. Completed
+# deliberately excludes planned hours: the strike-through rule on the Courses
+# table is written as the exact negation of the Completed test so the two can
+# never disagree, and folding planned hours in would break that.
 #
 # Courses table columns:
 #   Term | Course | Title | CH | Gr. | Pass | Ovr. | Cat. <edition>... | Notes
@@ -160,6 +171,19 @@ NO_TARGET_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
                              bgColor="FFDDEBF7")
 NO_TARGET_FONT = Font(color="FF1F4E79")
 
+# A category that is NOT met yet but WOULD be if the planned courses land.
+# Excel's own "Neutral" pair, which is the missing third beside the "Good" and
+# "Bad" pairs already used below for the Ovr. column.
+#
+# Deliberately NOT green. In this workbook green means "banked", and the
+# Planned cell sits directly beside the Completed cell that earns its green
+# honestly — a green here would be the first one in the sheet that does not
+# mean the hours exist, one column away from ones that do. Amber says "not
+# yet, but on plan" without colliding with anything.
+PLANNED_FILL = PatternFill(patternType="solid", fgColor=AUTOMATIC,
+                           bgColor="FFFFEB9C")
+PLANNED_FONT = Font(color="FF9C6500")
+
 # Excel's own "Good" and "Bad" colour pairs, used to make the Ovr. column
 # self-reporting. Nothing here judges whether an override was WISE — the point
 # is only that a sheet carrying several of them looks different at a glance
@@ -253,20 +277,35 @@ class Block:
     def __init__(self, requirements, cat_column_name, first_column):
         self.req = requirements
         self.cat_column_name = cat_column_name
-        # Four visible columns plus two hidden helpers.
+        # Four visible columns plus four hidden helpers.
         self.col_category = first_column
         self.col_description = first_column + 1
+        # Req. CH is HIDDEN, despite having a header. It is the INDEX/MATCH
+        # that resolves the B3 track dropdown, and all four of the rules on
+        # the block's category rows test it — but its value is already
+        # printed as the denominator of the two columns beside it, so showing
+        # it as well says the same number twice per row. Kept as a column
+        # rather than inlined for three reasons: the CF rules need a cell to
+        # point at; ISNUMBER/ISTEXT on it is how "has a target" is asked (see
+        # NO_TARGET_TEXT); and removing it would shift col_progress, which
+        # tracker_reader finds by a hardcoded +3 offset and would then lose
+        # every constraint tick SILENTLY.
         self.col_req = first_column + 2
+        # "Completed" — hours banked. The offset MUST stay +3: tracker_reader
+        # reaches the constraint ticks at col_category + 3.
         self.col_progress = first_column + 3
-        self.col_earned = first_column + 4
+        # "Planned" — the projected figure, banked plus planned.
+        self.col_planned = first_column + 4
+        self.col_earned = first_column + 5
+        self.col_planned_ch = first_column + 6
         # Each category's passing bar, as a letter. Hidden: the advisor sees
         # it per COURSE in the Courses table's Pass column, which looks its
         # value up here, so showing it twice would just be noise.
-        self.col_pass = first_column + 5
+        self.col_pass = first_column + 7
 
     @property
     def width(self):
-        return 6
+        return 8
 
     def letter(self, column):
         return get_column_letter(column)
@@ -358,6 +397,53 @@ def _progress_expression(cat_column_name, category_cell=None):
     return (
         "SUMPRODUCT(((Courses[" + cat_column_name + "]=" + category_cell + ")"
         "*(" + passing + "))*Courses[CH])"
+    )
+
+
+def _planned_test():
+    """The "this course is planned or in progress" test, per row.
+
+    A blank grade means registered-or-intended; "IP" means in progress this
+    term. The workbook already treats the two identically everywhere else —
+    the strike-through rule excludes both up front, and the GPA excludes both
+    from numerator and denominator — so they are one concept here too, and no
+    new grade token is introduced to say it.
+
+    "excl." takes a row out, exactly as it does for Completed: it is how an
+    advisor says "this one does not count", and a planned course is no
+    different. "incl." is deliberately NOT honoured — it rescues a real grade
+    that fell short of its bar, and a blank is not a grade. That is the same
+    `rank > 0` reasoning as in _passing_expression, arrived at from the other
+    side.
+
+    Written as sums of explicit comparisons, per trap 2: SUMPRODUCT feeds a
+    whole column in, and anything that is not elementwise collapses to a
+    scalar and fails silently.
+    """
+    return ('((Courses[Gr.]="")+(Courses[Gr.]="IP"))'
+            "*(Courses[Ovr.]<>" + OVR_EXCLUDE_Q + ")")
+
+
+def _planned_expression(cat_column_name, category_cell=None):
+    """SUMPRODUCT of credit hours PLANNED, optionally filtered to a category.
+
+    The same shape as _progress_expression, with the passing test swapped for
+    the planned one, so the two columns can never disagree about which rows
+    they are looking at.
+
+    The spare rows at the foot of the Courses table all have a blank Gr. and
+    so satisfy the planned test. That is harmless rather than a bug: their CH
+    cells are empty, Excel reads an empty cell as 0 in an arithmetic context,
+    and a row contributes CH hours or nothing. Worth stating, because the
+    alternative reading — "every blank row counts as a planned course" — is
+    the obvious one and is wrong.
+    """
+    planned = _planned_test()
+    if category_cell is None:
+        return "SUMPRODUCT((" + planned + ")*Courses[CH])"
+    return (
+        "SUMPRODUCT(((Courses[" + cat_column_name + "]=" + category_cell + ")"
+        "*(" + planned + "))*Courses[CH])"
     )
 
 
@@ -820,7 +906,9 @@ def build_tracker(path, requirement_sets, rows, student,
         cat_letter = block.letter(block.col_category)
         req_letter = block.letter(block.col_req)
         prog_letter = block.letter(block.col_progress)
+        planned_letter = block.letter(block.col_planned)
         earned_letter = block.letter(block.col_earned)
+        planned_ch_letter = block.letter(block.col_planned_ch)
 
         heading_cell = sheet.cell(
             row=4, column=block.col_category,
@@ -828,13 +916,31 @@ def build_tracker(path, requirement_sets, rows, student,
         heading_cell.font = Font(name=FONT, size=SIZE, bold=True,
                                  color="1F4E79")
 
+        # "Req. CH" still gets a header even though its column is hidden, so
+        # that unhiding it gives a labelled column rather than a mystery one.
         for offset, name in enumerate(
-                ["Category", "Description", "Req. CH", "Progress"]):
+                ["Category", "Description", "Req. CH", "Completed",
+                 "Planned"]):
             cell = sheet.cell(row=5, column=block.col_category + offset,
                               value=name)
             cell.font = HEADER_FONT
             cell.fill = HEADER_FILL
             cell.alignment = Alignment(horizontal="center")
+
+        planned_header = sheet.cell(row=5, column=block.col_planned)
+        planned_note = Comment(
+            "What this category would hold once the planned courses land: "
+            "the Completed figure plus every course filed here whose Gr. is "
+            "blank or \"IP\" and whose Ovr. is not \"excl.\".\n\n"
+            "Amber means this category is NOT met yet but WOULD be if the "
+            "plan comes off. No amber and no green next door means the plan "
+            "does not close the gap.\n\n"
+            "Green lives in Completed only. Hours are not banked until they "
+            "are graded.",
+            "Degree requirements")
+        planned_note.width = 320
+        planned_note.height = 140
+        planned_header.comment = planned_note
 
         first_row = 6
         for offset, category in enumerate(categories):
@@ -865,20 +971,36 @@ def build_tracker(path, requirement_sets, rows, student,
                 value="=" + _progress_expression(
                     block.cat_column_name,
                     "$" + cat_letter + "$" + str(excel_row)))
+            sheet.cell(
+                row=excel_row, column=block.col_planned_ch,
+                value="=" + _planned_expression(
+                    block.cat_column_name,
+                    "$" + cat_letter + "$" + str(excel_row)))
 
+            # The Planned cell shows the PROJECTED figure — banked plus
+            # planned — over the same requirement, so "will this be met?"
+            # needs no mental arithmetic. It reads as a second, hypothetical
+            # Completed cell, which is why it takes the same two shapes.
+            earned_ref = "$" + earned_letter + "$" + str(excel_row)
+            projected = ("$" + earned_letter + "$" + str(excel_row) + "+$" +
+                         planned_ch_letter + "$" + str(excel_row))
             if category.code in no_target:
                 # No denominator, because there is no target to fall short of.
                 # The right formula is emitted per row rather than wrapping
                 # every row in an IF: the generator already knows which
                 # categories these are, so the sheet need not re-derive it.
-                progress = ('=TEXT($' + earned_letter + "$" + str(excel_row) +
-                            ',"0")&" ch"')
+                progress = '=TEXT(' + earned_ref + ',"0")&" ch"'
+                planned = '=TEXT(' + projected + ',"0")&" ch"'
             else:
-                progress = ('=TEXT($' + earned_letter + "$" + str(excel_row) +
-                            ',"0")&" / "&TEXT($' + req_letter + "$" +
-                            str(excel_row) + ',"0")&" ch"')
+                req_ref = "$" + req_letter + "$" + str(excel_row)
+                progress = ('=TEXT(' + earned_ref + ',"0")&" / "&TEXT(' +
+                            req_ref + ',"0")&" ch"')
+                planned = ('=TEXT(' + projected + ',"0")&" / "&TEXT(' +
+                           req_ref + ',"0")&" ch"')
             sheet.cell(row=excel_row, column=block.col_progress,
                        value=progress)
+            sheet.cell(row=excel_row, column=block.col_planned,
+                       value=planned)
 
         total_row = first_row + len(categories)
         last_category_row = total_row - 1
@@ -888,31 +1010,52 @@ def build_tracker(path, requirement_sets, rows, student,
                    value="=" + _track_lookup(position, position["total_row"]))
         sheet.cell(row=total_row, column=block.col_earned,
                    value="=" + _progress_expression(block.cat_column_name))
+        sheet.cell(row=total_row, column=block.col_planned_ch,
+                   value="=" + _planned_expression(block.cat_column_name))
         sheet.cell(
             row=total_row, column=block.col_progress,
             value='=TEXT($' + earned_letter + "$" + str(total_row) +
                   ',"0")&" / "&TEXT($' + req_letter + "$" + str(total_row) +
                   ',"0")&" ch"')
+        # The "will they graduate on plan?" cell. Like the TOTAL Completed
+        # cell it always keeps its denominator: the declared total is a real
+        # number on every track, never a dash.
+        sheet.cell(
+            row=total_row, column=block.col_planned,
+            value='=TEXT($' + earned_letter + "$" + str(total_row) + '+$' +
+                  planned_ch_letter + "$" + str(total_row) +
+                  ',"0")&" / "&TEXT($' + req_letter + "$" + str(total_row) +
+                  ',"0")&" ch"')
 
         for excel_row in range(5, total_row + 1):
             for column_index in range(block.col_category,
-                                      block.col_progress + 1):
+                                      block.col_planned + 1):
                 cell = sheet.cell(row=excel_row, column=column_index)
                 cell.border = GRID_BORDER
                 if excel_row > 5:
                     cell.font = BODY_FONT
-                if column_index in (block.col_req, block.col_progress):
+                if column_index in (block.col_req, block.col_progress,
+                                    block.col_planned):
                     cell.alignment = Alignment(horizontal="center")
-        for column_index in range(block.col_category, block.col_progress + 1):
+        for column_index in range(block.col_category, block.col_planned + 1):
             sheet.cell(row=total_row, column=column_index).font = Font(
                 name=FONT, size=SIZE, bold=True)
 
-        # Hide the numeric helper column. It exists so the conditional
+        # Hide the numeric helper columns. They exist so the conditional
         # formatting can compare two NUMBERS; the original template compared
         # by pulling the numbers back out of the "12 / 15 ch" display string
         # with FIND and MID, which is brittle.
         sheet.column_dimensions[earned_letter].hidden = True
+        sheet.column_dimensions[planned_ch_letter].hidden = True
         sheet.column_dimensions[block.letter(block.col_pass)].hidden = True
+        # Req. CH is hidden too — see the note on Block.col_req. Its value is
+        # already the denominator of both visible figures beside it, so
+        # showing the column as well prints the same number twice a row (and
+        # on a no-target row, prints "—" beside a figure that already has no
+        # denominator). It stays a real column because the CF rules need a
+        # cell to test and because moving col_progress would break the
+        # constraint-tick read-back silently.
+        sheet.column_dimensions[req_letter].hidden = True
 
         # --- conditional formatting on this block ---------------------------
 
@@ -929,6 +1072,9 @@ def build_tracker(path, requirement_sets, rows, student,
         # holds until it doesn't. Say what is meant instead.
         has_target = "ISNUMBER($" + req_letter + str(first_row) + ")"
 
+        # Green stays on the Completed column ALONE. The Planned column can
+        # never go green: its figure includes hours that have not been earned,
+        # and green in this workbook means banked.
         progress_range = ("$" + prog_letter + "$" + str(first_row) +
                           ":$" + prog_letter + "$" + str(total_row))
         sheet.conditional_formatting.add(
@@ -946,7 +1092,7 @@ def build_tracker(path, requirement_sets, rows, student,
         # resolved requirement rather than an "is Honours?" flag means this
         # works for any track a requirements file cares to define.
         row_range = ("$" + cat_letter + "$" + str(first_row) +
-                     ":$" + prog_letter + "$" + str(last_category_row))
+                     ":$" + planned_letter + "$" + str(last_category_row))
         sheet.conditional_formatting.add(
             row_range,
             FormulaRule(
@@ -963,15 +1109,55 @@ def build_tracker(path, requirement_sets, rows, student,
         # on is what lets the range stay contiguous and lets a requirements
         # file put its catch-all anywhere — or have several. The TOTAL row is
         # excluded because it always resolves to a number.
+        #
+        # Both figure columns, so a catch-all's projection is blue like the
+        # Completed cell beside it. Neither is a verdict, and they should not
+        # look like two different kinds of non-verdict.
         if no_target:
             sheet.conditional_formatting.add(
                 "$" + prog_letter + "$" + str(first_row) +
-                ":$" + prog_letter + "$" + str(last_category_row),
+                ":$" + planned_letter + "$" + str(last_category_row),
                 FormulaRule(
                     formula=["ISTEXT($" + req_letter + str(first_row) + ")"],
                     fill=NO_TARGET_FILL, font=NO_TARGET_FONT,
                     stopIfTrue=False),
             )
+
+        # A category the plan would close: short today, met once the planned
+        # courses land. Amber rather than green — see PLANNED_FILL.
+        #
+        # Four terms, and each is load-bearing:
+        #
+        #   ISNUMBER   trap 4. Without it the rule fires on a no-target row,
+        #              because "—" > 0 is TRUE in Excel — text sorts above
+        #              every number. The row would then claim its plan closes
+        #              a gap that does not exist.
+        #   > 0        not on this track. The grey rule above stops first, so
+        #              this is belt and braces, but the rule should say what
+        #              it means rather than lean on rule ordering.
+        #   earned <   NOT met yet. This is what keeps amber off the rows that
+        #              are already green: on a met row the projection trivially
+        #              also clears the bar, and colouring it would put a second
+        #              status beside a green that already answered the
+        #              question. Same shape, and the same reason, as the
+        #              `rank < bar` bound on the "incl." rescue.
+        #   >=         and the projection does clear it.
+        #
+        # Added after the grey rule so an off-track row stays grey (its
+        # stopIfTrue=True is what makes that stick).
+        sheet.conditional_formatting.add(
+            "$" + planned_letter + "$" + str(first_row) +
+            ":$" + planned_letter + "$" + str(total_row),
+            FormulaRule(
+                formula=["AND(" + has_target +
+                         ",$" + req_letter + str(first_row) + ">0" +
+                         ",$" + earned_letter + str(first_row) +
+                         "<$" + req_letter + str(first_row) +
+                         ",$" + earned_letter + str(first_row) +
+                         "+$" + planned_ch_letter + str(first_row) +
+                         ">=$" + req_letter + str(first_row) + ")"],
+                fill=PLANNED_FILL, font=PLANNED_FONT, stopIfTrue=False),
+        )
 
         # --- constraints ----------------------------------------------------
 
@@ -1000,6 +1186,10 @@ def build_tracker(path, requirement_sets, rows, student,
                 comment.width = 320
                 comment.height = 90
                 text_cell.comment = comment
+            # The tick lives in the Completed column, not Planned: it is an
+            # attestation that something IS so, and it goes green there
+            # exactly as a met category does. tracker_reader also finds it at
+            # col_category + 3, which is why that offset must not move.
             tick = sheet.cell(row=excel_row, column=block.col_progress,
                               value=False)
             tick.alignment = Alignment(horizontal="center")
@@ -1016,7 +1206,7 @@ def build_tracker(path, requirement_sets, rows, student,
                              else "AND(" + ",".join(tests) + ")")
                 sheet.conditional_formatting.add(
                     "$" + cat_letter + "$" + str(excel_row) + ":$" +
-                    prog_letter + "$" + str(excel_row),
+                    planned_letter + "$" + str(excel_row),
                     FormulaRule(formula=[condition], fill=OFF_FILL,
                                 font=OFF_FONT, stopIfTrue=True),
                 )
@@ -1240,5 +1430,7 @@ def _set_widths(sheet, headings, blocks):
     for block in blocks:
         sheet.column_dimensions[block.letter(block.col_category)].width = 12
         sheet.column_dimensions[block.letter(block.col_description)].width = 44
-        sheet.column_dimensions[block.letter(block.col_req)].width = 9
         sheet.column_dimensions[block.letter(block.col_progress)].width = 13
+        sheet.column_dimensions[block.letter(block.col_planned)].width = 13
+        # No width for col_req: it is hidden, and a width on a hidden column
+        # is a value nobody will ever see being wrong.

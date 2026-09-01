@@ -74,6 +74,15 @@ EDGE_CASES = [
     ("D", "incl.", True),    # ...until the advisor allows it
     ("F", "incl.", False),   # but "incl." must never resurrect an F
     ("B", "incl.", True),    # already clears the bar: counted ONCE, not twice
+    # The last three are for the PLANNED column rather than Progress. None of
+    # them counts toward Progress — that is the point — but the first two must
+    # show up in Planned and the third must not, and only Excel can say
+    # whether they do. They also want checking for strike-through: an ungraded
+    # row must NOT be struck, because striking it would pass a verdict on work
+    # that has not been marked.
+    ("", "", False),         # planned: no grade yet
+    ("IP", "", False),       # in progress this term
+    ("IP", "excl.", False),  # ...forced out, so planned by neither test
 ]
 
 

@@ -50,6 +50,23 @@ uv run ~/3work/advising-scripts/transcript_to_tracker.py \
     -u student-records/NAME/tracker.xlsx
 ```
 
+### Adding a planned course
+
+No flag and no re-run: type it straight into the tracker. The generator leaves
+15 blank rows at the foot of the Courses table for this (`--spare-rows`).
+Fill in `Term`, `Course`, `Title`, `CH` and `Cat.`, and **leave `Gr.` blank**
+— or set it to `IP` for something in progress this term.
+
+The hours then show up in that category's **Planned** column, and the
+category goes amber if the plan closes its gap. Nothing about `Completed`,
+the GPA or the strike-through changes: an ungraded course has earned nothing
+and is not struck through, because it has not been marked.
+
+The row survives every later `-u`. When the grade eventually appears on the
+transcript it merges into the same row, on the `(term, course)` key — so type
+the term the way the transcript spells it, or you will get two rows instead of
+one.
+
 Other things it does:
 
 ```bash
@@ -158,7 +175,7 @@ with an empty row list, so there is no second generator to keep in step.
 | `requirements_io.py` | load + validate a requirements workbook |
 | `tracker_writer.py` | generate the tracker; every Excel formula lives here |
 | `checkbox_xlsx.py` | post-process the saved .xlsx into native Excel checkboxes; the only place that touches raw OOXML |
-| `tracker_reader.py` | read an existing tracker back as data |
+| `tracker_reader.py` | read an existing tracker back as data. **The one place that assumes the requirements block's geometry** — `col_category + 3` for the constraint ticks — and it fails silently, so `col_progress` must not move |
 | `check_support.py` | shared setup for the checks, incl. the fixture `.tsv` → workbook builder |
 
 ### Invariants — don't break these
@@ -170,7 +187,13 @@ with an empty row list, so there is no second generator to keep in step.
 2. **Merge preserves the advisor's work.** Rows key on `(term, course)`.
    Grades, titles and hours come from the transcript; `Cat.`, `Ovr.`, `Notes`
    and the GPA flags never get overwritten. A row present in the tracker but
-   absent from the transcript is kept and reported — usually a planned course.
+   absent from the transcript is kept and reported, split by grade: with no
+   grade it is a **planned** course the advisor typed in, and it will be
+   counted in the tracker's Planned column; with a grade it has vanished from
+   the transcript, which is a different thing and worth a look.
+   A blank grade also survives a merge for a second reason — the transcript
+   only ever *overwrites* a grade when it has one, so nothing can blank a row
+   back out.
 3. **Requirements are the source of truth; the tracker is derived.** Formula
    ranges are computed from the data, never hardcoded. That is what makes the
    old hand-built template's bugs impossible here — its category dropdown
@@ -264,17 +287,61 @@ The three things worth knowing:
 ## How the tracker works
 
 - **Rows are keyed on `(term, course)`.** A retake is naturally distinct.
+- **The requirements block shows two figures, not four columns.** It reads
+  `Category | Description | Completed | Planned`. `Req. CH` is still a column
+  and is still where every conditional-formatting rule looks, but it is
+  **hidden**: its value is already the denominator of both figures beside it,
+  so showing it printed the same number twice a row — and on a `—` category it
+  showed `—` beside a figure that already had no denominator.
+
+  It is hidden rather than deleted for three reasons, each sufficient on its
+  own. The CF rules need a cell to point at. `ISNUMBER`/`ISTEXT` on it is
+  *how* "does this row have a target?" is asked (see trap 4). And deleting it
+  would shift `col_progress` off `col_category + 3`, which is where
+  `tracker_reader` reaches the constraint ticks — inside a bare
+  `except Exception: return {}`, so every advisor's attestations would stop
+  surviving `-u` with no error at all. `check_planned.py` pins that offset.
+
 - **`B3` is a track dropdown.** `Req. CH` cells resolve it via INDEX/MATCH
   against a hidden `_TrackData` sheet. The grey-and-strikethrough formatting
   keys off "this row requires 0 ch on the selected track", so it works for any
   track a requirements file defines.
+
+- **`Completed` is hours banked; `Planned` is the projection.** `Planned`
+  shows completed plus planned over the same requirement — `12 / 12 ch` beside
+  a `6 / 12 ch` — so "will this be met?" needs no arithmetic. A course counts
+  as planned when its `Gr.` is **blank or `IP`** and its `Ovr.` is not
+  `excl.`.
+
+  Blank and `IP` are one concept, not two: a blank grade is a course
+  registered or intended, `IP` is one in progress this term, and every other
+  rule in the workbook already treats them identically — the strike-through
+  excludes both up front, the GPA excludes both from numerator and
+  denominator, and both rank 0 so `incl.` cannot rescue either. No new grade
+  token was introduced to say "planned", because one would have to be added to
+  `GRADE_CHOICES`, the GPA exclusion list, the strike-through guard and its
+  pinned fragments in `check_no_credit.py` — for nothing the existing pair
+  does not already express.
+
+  **`Completed` deliberately excludes planned hours.** The strike-through rule
+  is written as the exact negation of the Completed test so the two can never
+  disagree (see below). Folding planned hours in breaks that identity — the
+  row would be counted and not struck — and green would stop meaning "banked",
+  which is the one thing the whole sheet rests on. A student who had *planned*
+  everything would show an all-green tracker.
+
+  `"incl."` is ignored here, deliberately. It rescues a real grade that fell
+  short of its bar, and a blank is not a grade — the same `rank > 0` reasoning
+  as in the Completed test, arrived at from the other side. `"excl."` **is**
+  honoured, because it is how an advisor says "this one does not count", and a
+  planned course is no different.
 - **`Pass` is derived, not entered.** One column of the Courses table,
   between `Gr.` and `Ovr.`, holding an `INDEX/MATCH` that resolves the row's
   `Cat.` to its category's bar, defaulting to the file's default when `Cat.`
   is blank. It is grey where `Gr.` is bold: the grade is the fact, the bar
   beside it is only a reference.
 
-  The lookup has to be a real cell and not inlined into the Progress
+  The lookup has to be a real cell and not inlined into the Completed
   `SUMPRODUCT` — see trap 2. With two editions the **first** one wins; two
   editions normally means two calendar years of one degree, whose bars agree.
   A BA block beside a BSc block would need two verdicts on one row and is not
@@ -298,7 +365,7 @@ The three things worth knowing:
   never category codes from any requirements file. Its own `-u --ad-hoc`
   re-run keeps everything, which is the case that matters year to year.
 
-- **`Ovr.` is `incl.` / `excl.`** — force a course to count toward progress,
+- **`Ovr.` is `incl.` / `excl.`** — force a course to count toward Completed,
   or force it not to. It never affects GPA. `incl.` rescues any real grade
   that fell short of its bar **except F**; a blank, `W` or `IP` is not a grade
   and is never rescued, so an `incl.` left on a planned course does nothing.
@@ -307,7 +374,7 @@ The three things worth knowing:
 
   **The rescue term must stay bounded below the bar.** Without
   `rank < bar` on it, an `incl.` on a course that already passes satisfies
-  both terms of the Progress sum and its credit hours are counted **twice**.
+  both terms of the Completed sum and its credit hours are counted **twice**.
   The old D-only rule was safe from this by accident — `D` was not in the
   passing list, so the terms could not overlap. `check_formulas.py` asserts
   the bound is present, because nothing offline can evaluate the formula and
@@ -344,13 +411,13 @@ The three things worth knowing:
   still reads chronologically, and `Gr.` stays bold because the grade is the
   *reason*, not the casualty.
 
-  The condition is **the negation of the Progress test**, not a list of bad
+  The condition is **the negation of the Completed test**, not a list of bad
   grades. So it is `F` and `W`, and a `D` where the bar is `C` but not where
   the bar is `D`, and a `C` where the bar is `B` — all of that falls out
-  rather than being enumerated, and the strike-through can never disagree with
-  the Progress column about whether a course counted. A blank or `IP` grade is
-  excluded up front: those are courses in progress, and striking them through
-  would pass a verdict on unmarked work.
+  rather than being enumerated, and the strike-through can never disagree
+  with the `Completed` column about whether a course counted. A blank or `IP`
+  grade is excluded up front: those are courses planned or in progress, and
+  striking them through would pass a verdict on unmarked work.
 
   Writing it the short way — `OR($E6="F",$E6="W")` — produces a workbook that
   is well-formed, looks right on every BSc, and is wrong on the first BA row
@@ -365,6 +432,22 @@ The three things worth knowing:
   does not count towards the degree" in both halves of the sheet — the
   off-track requirement rows and the no-credit course rows. Same idea, so the
   same appearance; the fill is what stays unique.
+
+  The whole palette, so it stays documented in one place:
+
+  | Fill | Means | Where |
+  |---|---|---|
+  | green `C6EFCE` | met, or attested | `Completed`, ticked constraints, `Ovr. = incl.` |
+  | amber `FFEB9C` | not met, but the plan closes it | `Planned` |
+  | blue `DDEBF7` | no target — informational | `Completed` / `Planned` on a `—` row |
+  | grey `E7E6E6` | not on this track | requirements rows, off-track constraints |
+  | red `FFC7CE` | forced out | `Ovr. = excl.` |
+
+  **Green never appears in `Planned`.** Green means the hours are banked, and
+  a `Planned` figure includes hours that are not. The two columns sit
+  adjacent, so a green there would be the workbook's first green that does not
+  mean what every other green means, one column from ones that do. That is why
+  amber exists rather than reusing `MET_FILL`.
 
 - **A category with no target gets its own colour.** A `—` category shows
   `26 ch` — a count, no denominator — on the pale blue `NO_TARGET_FILL`, and
@@ -423,7 +506,7 @@ elementwise:
   to the **scalar 0**. The GPA numerator became 0 while the denominator
   computed normally, so every GPA read `0.00`.
 - `ISNUMBER(MATCH(...))` — collapses to one TRUE/FALSE for the whole column.
-  This fails *quietly*: Progress counted every course in a category regardless
+  This fails *quietly*: Completed counted every course in a category regardless
   of grade, failures included, without looking wrong.
 
 Write sums of explicit `(Courses[Gr.]="A+")` comparisons instead. Verbose, but
@@ -468,9 +551,10 @@ number, so a comparison meant as "does this row need any hours?" silently
 answers yes for a row whose `Req. CH` holds a dash.
 
 That is why the `Req. CH` cell can carry either a number or `—` at all, and
-why both the "met" and the "not on this track" rules are written
-`AND(ISNUMBER($O6), …)` rather than testing the value alone. Without the
-guard, the met rule fires on a category that has no target and cannot be met.
+why all three of the "met", "not on this track" and "on plan" rules are
+written `AND(ISNUMBER($O6), …)` rather than testing the value alone. Without
+the guard, the met rule fires on a category that has no target and cannot be
+met, and the amber rule claims the plan closes a gap that does not exist.
 
 The nasty part is that it *looks* fixed either way. `AND($O6>0,$Q6>=$O6)` also
 comes out FALSE on a dash — the second term compares a number to text and
@@ -479,9 +563,13 @@ ordering, one edit away from breaking. Every offline check passes and the XML
 is well-formed.
 
 Say what is meant: ask whether the cell is a number, then ask what the number
-is. `check_no_target.py` asserts the guard is present on both rules, and
-mutation-testing it (delete the guard, confirm the check fails) is the only
-way to know the assertion works.
+is. `check_no_target.py` asserts the guard is present on every rule that
+compares against `Req. CH`, and mutation-testing it (delete the guard, confirm
+the check fails) is the only way to know the assertion works.
+`check_planned.py` automates that for the amber rule: it rewrites the guard
+out of a real saved workbook and asserts the check goes red — and that it goes
+red for exactly one reason, so a mutant that breaks something else too cannot
+pass for a working assertion.
 
 ---
 
@@ -490,7 +578,7 @@ way to know the assertion works.
 ```bash
 for c in check_requirements check_merge check_two_editions check_formulas \
          check_blank check_passing_grades check_checkboxes check_no_target \
-         check_no_credit check_adhoc; do
+         check_no_credit check_adhoc check_planned; do
     echo "### $c"; uv run $c.py; done
 ```
 
@@ -510,18 +598,23 @@ So after any change to `tracker_writer.py`: run `check_formulas.py`, then
 is load-bearing, not belt-and-braces — it is how both traps above were caught,
 and structural XML inspection missed both.
 
-`check_formulas.py` plants six edge-case grades into the tracker before saving
-it, for exactly that reason — `F`, `W`, a bare `D`, `D + incl.`, `F + incl.`
-and `B + incl.` (the double-count case). The sample transcript is a strong
+`check_formulas.py` plants nine edge-case grades into the tracker before
+saving it, for exactly that reason — `F`, `W`, a bare `D`, `D + incl.`,
+`F + incl.` and `B + incl.` (the double-count case), then a blank, an `IP` and
+an `IP + excl.` for the Planned column. The sample transcript is a strong
 student — every grade A-range or `CR` — and against a transcript like that, a
-Progress column that wrongly counts failures looks identical to a correct one.
+Completed column that wrongly counts failures looks identical to a correct one.
 The planted grades give the manual comparison something to disagree about.
 `check_merge.py` plants a retake for the same reason.
 
-That same workbook is the one to open for the **strike-through**: those six
-rows are exactly the set the rule has to get right, and four of them should be
-struck out (`F`, `W`, `D`, `F + incl.`) while two should not (`D + incl.`,
-`B + incl.`).
+That same workbook is the one to open for the **strike-through**: those rows
+are exactly the set the rule has to get right. Four should be struck out
+(`F`, `W`, `D`, `F + incl.`); five should not — `D + incl.` and `B + incl.`
+because they count, and the blank, `IP` and `IP + excl.` rows because an
+ungraded course has earned no verdict either way.
+
+And it is the workbook to open for **Planned**: the blank and `IP` rows must
+appear in their category's Planned figure, and the `IP + excl.` row must not.
 
 ---
 
@@ -564,6 +657,33 @@ struck out (`F`, `W`, `D`, `F + incl.`) while two should not (`D + incl.`,
   are no categories to derive a bar from. See the bullet above.
 - **An ad hoc tracker's `Cat.` cells not offering a dropdown.** There is no
   requirements file, so there is no list of category codes to offer.
+- **`Planned` showing the same figure as `Completed`.** Nothing is planned in
+  that category, so the projection equals what is already banked. Expected on
+  most rows of most trackers — the column is sparse by nature, and only earns
+  its keep on the few rows where an advising conversation has put something.
+- **A `Planned` cell that is green.** It cannot be: green lives in `Completed`
+  only. If one appears, `MET_FILL` has been used where `PLANNED_FILL` belongs.
+- **An amber row whose `Completed` is unfilled.** That is the amber doing its
+  job: not met today, met once the planned courses land.
+- **No amber on a row that is short.** The plan does not close that gap. The
+  absence is the answer — unlike the no-target row, where absence of green
+  would have been a false alarm, here "no amber and no green" is a true and
+  useful statement.
+- **A blank-grade or `IP` row not struck through.** Correct. The
+  strike-through asks "did this course earn its hours?", and an unmarked
+  course has not been asked yet. Striking it would pass a verdict on work
+  nobody has graded.
+- **A planned course with `incl.` in `Ovr.` doing nothing at all.** `incl.`
+  rescues a real grade that fell short of its bar; a blank is not a grade. The
+  row is already counted in `Planned` on its own account, and `incl.` neither
+  adds to that nor promotes it to `Completed`.
+- **`Req. CH` missing from the requirements block.** It is hidden, not gone —
+  its number is already the denominator of both figures beside it. Unhide
+  column `O` (one-edition tracker) to see it; it is still what every
+  conditional-formatting rule tests.
+- **The tracker reporting a course under "Planned" that you meant to drop.**
+  The merge splits kept rows by grade: no grade means planned. Delete the row,
+  or give it a `W`.
 
 ---
 
