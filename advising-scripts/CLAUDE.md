@@ -117,6 +117,7 @@ uv run ~/3work/advising-scripts/blank_tracker.py \
 The wrapper's `-b` is the short form: `pr-degree-tracker -b -r bsc-math` from inside the student's directory, with `-r adhoc` for the ad hoc version.
 It names the output as it would for a transcript, and falls back to `-v1`, `-v2`, … in the same way — which matters here, because `blank_tracker.py` itself overwrites whatever `-o` points at.
 `-n`, `--id` and `--rows` go after `--`.
+Run outside a student's directory — from `student-records/` itself, say — it writes `BLANK-bsc-math.xlsx` instead: a tracker belonging to no student, for sending to someone who wants to see what completing the degree looks like.
 
 Same workbook the full pipeline produces — same formulas, dropdowns,
 conditional formatting, requirements blocks — with an empty Courses table.
