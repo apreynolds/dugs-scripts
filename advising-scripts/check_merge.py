@@ -35,7 +35,7 @@ def main():
     sheet = workbook["Tracker"]
 
     # Correct the student's identity (the parser only guesses at it).
-    sheet["B1"] = "Gretzky, Wayne"
+    sheet["B1"] = "Sakic, Joe"
     sheet["B2"] = "3213213"
 
     # Resolve the columns by heading. They were once written as literal
@@ -114,7 +114,7 @@ def main():
         failures.append("duplicated rows: " +
                         ", ".join(t + " " + c for t, c in duplicates))
 
-    if after["student"]["name"] != "Gretzky, Wayne":
+    if after["student"]["name"] != "Sakic, Joe":
         failures.append("name not preserved: " +
                         repr(after["student"]["name"]))
     if after["student"]["id"] != "3213213":
