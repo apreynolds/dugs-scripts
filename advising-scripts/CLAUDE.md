@@ -21,15 +21,16 @@ uv run ~/3work/advising-scripts/transcript_to_tracker.py \
     -o student-records/NAME/tracker.xlsx -t Honours
 ```
 
-In practice Patrick runs it through `pr-transcript-to-xlsx`, a wrapper in
+In practice Patrick runs it through `pr-degree-tracker`, a wrapper in
 `~/.config/scripts/bin` that derives everything except the degree. From inside
 a `student-records/last-first/` directory:
 
 ```bash
-pr-transcript-to-xlsx -r bsc-math       # → last-first-bsc-math.xlsx
-pr-transcript-to-xlsx -u -r bsc-math    # next year: merge into it
-pr-transcript-to-xlsx -r adhoc          # → last-first-adhoc.xlsx (see below)
-pr-transcript-to-xlsx -l                # what degree keys exist
+pr-degree-tracker -r bsc-math       # → last-first-bsc-math.xlsx
+pr-degree-tracker -u -r bsc-math    # next year: merge into it
+pr-degree-tracker -r adhoc          # → last-first-adhoc.xlsx (see below)
+pr-degree-tracker -b -r bsc-math    # → last-first-bsc-math.xlsx, empty (see below)
+pr-degree-tracker -l                # what degree keys exist
 ```
 
 It finds the single PDF in the directory, resolves `bsc-math` to
@@ -112,6 +113,10 @@ uv run ~/3work/advising-scripts/blank_tracker.py \
     -o student-records/NAME/tracker.xlsx -t Honours \
     -n "Last, First" --id 1234567
 ```
+
+The wrapper's `-b` is the short form: `pr-degree-tracker -b -r bsc-math` from inside the student's directory, with `-r adhoc` for the ad hoc version.
+It names the output as it would for a transcript, and falls back to `-v1`, `-v2`, … in the same way — which matters here, because `blank_tracker.py` itself overwrites whatever `-o` points at.
+`-n`, `--id` and `--rows` go after `--`.
 
 Same workbook the full pipeline produces — same formulas, dropdowns,
 conditional formatting, requirements blocks — with an empty Courses table.
