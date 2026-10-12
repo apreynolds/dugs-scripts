@@ -691,13 +691,8 @@ def shade_by_status(sheet, columns):
         )
 
 
-def write_table(sheet, columns, rows, freeze, row_height=None):
-    """Write a header row and data rows, with widths, filter and frozen panes.
-
-    row_height, if given, fixes the height of every data row. Text is wrapped,
-    so a fixed height shows only the first line of a long cell; the rest is
-    still there, in the formula bar and to a search.
-    """
+def write_table(sheet, columns, rows, freeze):
+    """Write a header row and data rows, with widths, filter and frozen panes."""
     for index, (heading, width, group) in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=index, value=heading)
         cell.font = Font(bold=True)
@@ -711,8 +706,6 @@ def write_table(sheet, columns, rows, freeze, row_height=None):
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
-        if row_height:
-            sheet.row_dimensions[row[0].row].height = row_height
     sheet.freeze_panes = freeze
     sheet.auto_filter.ref = sheet.dimensions
 
@@ -734,19 +727,21 @@ def main_row(key, hand, offerings, windows, covered, latest_term, today):
 
 
 def history_cell(offering):
-    """Lectures taught in person, then who taught them: '4 (Mehmood, Allen)'.
-
-    'G' if it ran for graduate students only. The count comes first so that
-    it is what shows in a narrow column; the names follow on the next line of
-    the wrapped cell, out of sight but readable in the formula bar.
-    """
+    """Lectures taught in person; 'G' if it ran for graduate students only."""
     if offering is None:
         return None
     if offering["inperson"]:
-        count = str(offering["lectures"])
-        names = ", ".join(offering["instructors"])
-        return f"{count} ({names})" if names else count
+        return offering["lectures"]
     return "G" if offering["grad_only"] else None
+
+
+def instructors_cell(offering):
+    """Who taught it in person that term, e.g. 'Reynolds, Allen, Lissner'."""
+    if offering is None:
+        return None
+    if offering["inperson"]:
+        return ", ".join(offering["instructors"]) or "(not recorded)"
+    return "(grad only)" if offering["grad_only"] else None
 
 
 def main():
@@ -867,8 +862,22 @@ def main():
         per = offerings.get(key, {})
         rows.append([course_display(key), main_hand[key].get("title", "")]
                     + [history_cell(per.get(term)) for term in newest_first])
-    # One line high, so each cell shows its count and hides the names after it.
-    write_table(sheet, columns, rows, freeze="C2", row_height=15)
+    write_table(sheet, columns, rows, freeze="C2")
+
+    # ---- Instructors --------------------------------------------------------
+    # The same grid as History, holding names instead of counts. Kept apart so
+    # History stays numbers that can be read at a glance, summed and filtered.
+    sheet = workbook.create_sheet("Instructors")
+    columns = [("Course", 11, "id"), ("Title", 34, "id")]
+    for term in newest_first:
+        group = {"FA": "fall", "WI": "winter", "SM": "other"}[term[5:]]
+        columns.append((term_label(term), 18, group))
+    rows = []
+    for key in main_keys:
+        per = offerings.get(key, {})
+        rows.append([course_display(key), main_hand[key].get("title", "")]
+                    + [instructors_cell(per.get(term)) for term in newest_first])
+    write_table(sheet, columns, rows, freeze="C2")
 
     # ---- Calendar -----------------------------------------------------------
     sheet = workbook.create_sheet("Calendar")
@@ -926,11 +935,9 @@ def main():
                    "fall, winter or summer offering."),
         ("Status", "Rows marked hiatus or inactive are coloured automatically; the colour "
                    "follows whatever is typed in the Status cell."),
-        ("History", "Lectures taught in person each term, then who taught them, e.g. "
-                    "'4 (Mehmood, Lissner, Allen, Reynolds)'. Only the count shows in the narrow "
-                    "column; click the cell to read the names in the formula bar, or search for "
-                    "a name. G = graduate number only. Blank = not taught in person. Before 2017 "
-                    "the count is the number of instructors."),
+        ("History", "Lectures taught in person each term. G = graduate number only. Blank = not "
+                    "taught in person. Before 2017 the count is the number of instructors."),
+        ("Instructors", "The same grid as History, with the names of who taught in person."),
         ("Other numbers", "Numbers the registrar files this course under. Their sections are "
                           "counted as this course's."),
         ("Cross-listed", "A graduate number here (e.g. MATH 6443) makes graduate-only offerings "
