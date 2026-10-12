@@ -4,17 +4,21 @@
 # ///
 # build_courses.py — build the MATH/STAT master course list from Informer exports.
 # Usage:
-#   ./build_courses.py -o OUT.xlsx
+#   ./build_courses.py                      rebuild the master list in place
+#   ./build_courses.py -o OUT.xlsx          write a trial copy somewhere else
 #   ./build_courses.py --previous OLD.xlsx -o OUT.xlsx
-#   ./build_courses.py --timetable DIR_OR_CSV [--timetable ...] --summaries DIR -o OUT.xlsx
+#   ./build_courses.py --timetable DIR_OR_CSV [--timetable ...] --summaries DIR
 #   ./build_courses.py -h | --help
 #
-#   -o, --output      workbook to write (required). Always written from
-#                     scratch; refuses to overwrite the --previous workbook
-#   -p, --previous    the existing course workbook, read ONLY for the columns
-#                     a person typed (status, notes, ...) and the calendar
-#                     text. Either the old courses-math-stat-MASTER layout or
-#                     a workbook this script wrote earlier
+#   -o, --output      workbook to write (default: COURSES-math-stat.xlsx in
+#                     the curriculum folder). Always written from scratch. A
+#                     file already there is first copied, with the date and
+#                     time in its name, into the zzzzz folder beside it.
+#                     Refuses to run while the workbook is open in Excel
+#   -p, --previous    workbook read ONLY for the columns a person typed
+#                     (status, notes, ...) and the calendar text (default: the
+#                     output workbook itself). Either the old
+#                     courses-math-stat-MASTER layout or one this script wrote
 #   -t, --timetable   an Informer "UNB Timetable Data" export, or a directory
 #                     of them; repeat the flag for several. One row per section
 #   -s, --summaries   directory of Informer "Course Summary" exports, one CSV
@@ -52,7 +56,9 @@
 import argparse
 import csv
 import datetime
+import os
 import re
+import shutil
 import statistics
 import sys
 from collections import defaultdict
@@ -74,7 +80,7 @@ DEFAULT_TIMETABLES = [
     DUGS / "timetable-committee",  # holds the current year's dated snapshot
 ]
 DEFAULT_SUMMARIES = DUGS / "curriculum/informer5-course-summaries"
-DEFAULT_PREVIOUS = DUGS / "curriculum/COURSES-math-stat.xlsx"
+DEFAULT_OUTPUT = DUGS / "curriculum/COURSES-math-stat.xlsx"
 
 # Subjects that belong on the list, in the order they are sorted.
 SUBJECTS = ["MATH", "STAT", "DATA"]
@@ -744,13 +750,32 @@ def instructors_cell(offering):
     return "(grad only)" if offering["grad_only"] else None
 
 
+def backup_existing(output):
+    """Copy the workbook about to be overwritten, and return where the copy went.
+
+    The workbook holds typed columns that exist nowhere else, so it is never
+    overwritten without a dated copy. The copy goes in a 'zzzzz' folder beside
+    it (Patrick's archive folders) if there is one, else right beside it.
+    """
+    if not output.exists():
+        return None
+    archive = output.parent / "zzzzz"
+    folder = archive if archive.is_dir() else output.parent
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    backup = folder / f"{output.stem}_{stamp}{output.suffix}"
+    shutil.copy2(output, backup)  # copy2 keeps the file's modified date
+    return backup
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Build the MATH/STAT master course list from Informer exports."
     )
-    parser.add_argument("-o", "--output", required=True, help="workbook to write")
-    parser.add_argument("-p", "--previous", default=DEFAULT_PREVIOUS,
-                        help="existing workbook, read only for the typed columns")
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT,
+                        help="workbook to write (default: the master list itself)")
+    parser.add_argument("-p", "--previous",
+                        help="workbook to read the typed columns from (default: the output "
+                             "workbook, so the master list is rebuilt in place)")
     parser.add_argument("-t", "--timetable", action="append",
                         help="timetable export or directory of them (repeatable)")
     parser.add_argument("-s", "--summaries", default=DEFAULT_SUMMARIES,
@@ -760,9 +785,17 @@ def main():
     args = parser.parse_args()
 
     output = Path(args.output).expanduser()
-    previous = Path(args.previous).expanduser()
-    if output.resolve() == previous.resolve():
-        sys.exit("Refusing to overwrite the --previous workbook. Give -o a different name.")
+    # With no --previous the workbook is rebuilt in place: its typed columns
+    # are read, then the whole file is written afresh around them.
+    previous = Path(args.previous).expanduser() if args.previous else output
+    if not previous.exists():
+        sys.exit(f"Cannot find {previous}.\n"
+                 "Give --previous the workbook that holds the typed columns.")
+    # Excel leaves a '~$name.xlsx' file beside a workbook it has open. Writing
+    # underneath an open workbook invites Excel to save its old copy back on top.
+    lock = output.with_name("~$" + output.name)
+    if lock.exists():
+        sys.exit(f"{output.name} looks open in Excel ({lock.name} exists). Close it and run again.")
 
     today = datetime.date.today().isoformat()
     timetable, covered, tt_files = load_timetables(args.timetable or DEFAULT_TIMETABLES)
@@ -952,9 +985,16 @@ def main():
         row[0].font = Font(bold=True)
         row[1].alignment = Alignment(wrap_text=True, vertical="top")
 
-    workbook.save(output)
+    backup = backup_existing(output)
+    # Save under a temporary name and then swap it in, so a crash part-way
+    # through saving cannot leave a half-written master list.
+    temporary = output.with_name(output.stem + ".tmp.xlsx")
+    workbook.save(temporary)
+    os.replace(temporary, output)
 
     print(f"Wrote {output}")
+    if backup:
+        print(f"  The copy it replaced was kept as {backup}")
     print(f"  MAIN: {len(main_keys)} courses ({len(new_courses)} new), removed: {len(removed_keys)}")
     print(f"  History: {term_label(all_terms[0])} to {term_label(all_terms[-1])}, {len(all_terms)} terms")
     if new_courses:
