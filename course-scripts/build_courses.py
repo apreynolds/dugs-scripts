@@ -60,6 +60,8 @@ from itertools import zip_longest
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.comments import Comment
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -423,7 +425,7 @@ HEADINGS = {
     "status": ["Status", "STATUS"],
     "reqd": ["Required by others", "REQD by OTHERS"],
     "cross": ["Cross-listed", "Cross listed"],
-    "staffing": ["Staffing note"],
+    "staffing": ["Instructor note", "Staffing note"],
     "notes": ["Notes", "MY NOTES", "my NOTES"],
     "check": ["Check"],
     "description": ["Description", "DESCRIPTION"],
@@ -637,32 +639,80 @@ def grad_numbers(cross_text):
 MAIN_COLUMNS = [
     ("Course", 11, "id"), ("Title", 34, "id"), ("CH", 5, "id"), ("Format", 11, "id"),
     ("Other numbers", 13, "hand"),
-    ("Fall slot", 34, "fall"), ("Fall sections", 12, "fall"),
-    ("Fall offered", 24, "fall"), ("Fall enrol", 9, "fall"),
-    ("Winter slot", 34, "winter"), ("Winter sections", 12, "winter"),
-    ("Winter offered", 24, "winter"), ("Winter enrol", 9, "winter"),
+    ("Fall timeslot", 34, "fall"), ("Fall sections", 12, "fall"),
+    ("Fall offering note", 24, "fall"), ("Fall enrol", 9, "fall"),
+    ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"),
+    ("Winter offering note", 24, "winter"), ("Winter enrol", 9, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
     ("Status", 10, "hand"), ("Required by others", 11, "hand"), ("Cross-listed", 16, "hand"),
-    ("Staffing note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
+    ("Instructor note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
 ]
 FILLS = {
     "id": "D9D9D9", "fall": "F8CBAD", "winter": "BDD7EE", "other": "E2EFDA", "hand": "FFF2CC",
 }
 
+# Explanations shown as an Excel note (the little red corner) on a header,
+# for headings that would be too long if they explained themselves.
+HEADER_NOTES = {
+    "Fall enrol": "Median of the last 3 offerings.",
+    "Winter enrol": "Median of the last 3 offerings.",
+}
 
-def write_table(sheet, columns, rows, freeze):
-    """Write a header row and data rows, with widths, filter and frozen panes."""
+# Rows whose Status says the course is not currently running are greyed out.
+# (text colour for the whole row, fill colour for the Status cell itself)
+STATUS_COLOURS = {
+    "hiatus": ("9C5700", "FFEB9C"),    # amber: paused, expected back
+    "inactive": ("808080", "D9D9D9"),  # grey: not expected back soon
+}
+
+
+def shade_by_status(sheet, columns):
+    """Colour the rows on hiatus or inactive, using conditional formatting.
+
+    Conditional formatting (rather than colouring the cells here) means the
+    colour follows the Status cell: type 'hiatus' in Excel and the row changes
+    at once, without a rebuild. Excel's = ignores case, so HIATUS matches too.
+    """
+    headings = [heading for heading, _, _ in columns]
+    status = get_column_letter(headings.index("Status") + 1)
+    last = get_column_letter(len(columns))
+    if sheet.max_row < 2:
+        return  # no data rows to colour
+    for word, (text_colour, fill_colour) in STATUS_COLOURS.items():
+        # $Q2: the $ pins the column, so every cell in a row tests that row's Status.
+        test = [f'TRIM(${status}2)="{word}"']
+        sheet.conditional_formatting.add(
+            f"A2:{last}{sheet.max_row}",
+            FormulaRule(formula=test, font=Font(color=text_colour)),
+        )
+        sheet.conditional_formatting.add(
+            f"{status}2:{status}{sheet.max_row}",
+            FormulaRule(formula=test, fill=PatternFill("solid", bgColor=fill_colour)),
+        )
+
+
+def write_table(sheet, columns, rows, freeze, row_height=None):
+    """Write a header row and data rows, with widths, filter and frozen panes.
+
+    row_height, if given, fixes the height of every data row. Text is wrapped,
+    so a fixed height shows only the first line of a long cell; the rest is
+    still there, in the formula bar and to a search.
+    """
     for index, (heading, width, group) in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=index, value=heading)
         cell.font = Font(bold=True)
         cell.fill = PatternFill("solid", start_color=FILLS[group])
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         sheet.column_dimensions[get_column_letter(index)].width = width
+        if heading in HEADER_NOTES:
+            cell.comment = Comment(HEADER_NOTES[heading], "build_courses.py")
     for row in rows:
         sheet.append(row)
     for row in sheet.iter_rows(min_row=2):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
+        if row_height:
+            sheet.row_dimensions[row[0].row].height = row_height
     sheet.freeze_panes = freeze
     sheet.auto_filter.ref = sheet.dimensions
 
@@ -684,21 +734,19 @@ def main_row(key, hand, offerings, windows, covered, latest_term, today):
 
 
 def history_cell(offering):
-    """Lectures taught in person; 'G' if it ran for graduate students only."""
+    """Lectures taught in person, then who taught them: '4 (Mehmood, Allen)'.
+
+    'G' if it ran for graduate students only. The count comes first so that
+    it is what shows in a narrow column; the names follow on the next line of
+    the wrapped cell, out of sight but readable in the formula bar.
+    """
     if offering is None:
         return None
     if offering["inperson"]:
-        return offering["lectures"]
+        count = str(offering["lectures"])
+        names = ", ".join(offering["instructors"])
+        return f"{count} ({names})" if names else count
     return "G" if offering["grad_only"] else None
-
-
-def instructors_cell(offering):
-    """Who taught it in person that term, e.g. 'Reynolds, Allen, Lissner'."""
-    if offering is None:
-        return None
-    if offering["inperson"]:
-        return ", ".join(offering["instructors"]) or "(not recorded)"
-    return "(grad only)" if offering["grad_only"] else None
 
 
 def main():
@@ -805,8 +853,9 @@ def main():
          for k in main_keys],
         freeze="C2",
     )
+    shade_by_status(sheet, MAIN_COLUMNS)
 
-    # ---- History ------------------------------------------------------------
+    # ---- History------------------------------------------------------------
     sheet = workbook.create_sheet("History")
     newest_first = list(reversed(all_terms))
     columns = [("Course", 11, "id"), ("Title", 34, "id")]
@@ -818,22 +867,8 @@ def main():
         per = offerings.get(key, {})
         rows.append([course_display(key), main_hand[key].get("title", "")]
                     + [history_cell(per.get(term)) for term in newest_first])
-    write_table(sheet, columns, rows, freeze="C2")
-
-    # ---- Instructors --------------------------------------------------------
-    # The same grid as History, holding names instead of counts. Kept apart so
-    # History stays a pattern of 1s and blanks that can be read at a glance.
-    sheet = workbook.create_sheet("Instructors")
-    columns = [("Course", 11, "id"), ("Title", 34, "id")]
-    for term in newest_first:
-        group = {"FA": "fall", "WI": "winter", "SM": "other"}[term[5:]]
-        columns.append((term_label(term), 18, group))
-    rows = []
-    for key in main_keys:
-        per = offerings.get(key, {})
-        rows.append([course_display(key), main_hand[key].get("title", "")]
-                    + [instructors_cell(per.get(term)) for term in newest_first])
-    write_table(sheet, columns, rows, freeze="C2")
+    # One line high, so each cell shows its count and hides the names after it.
+    write_table(sheet, columns, rows, freeze="C2", row_height=15)
 
     # ---- Calendar -----------------------------------------------------------
     sheet = workbook.create_sheet("Calendar")
@@ -856,8 +891,9 @@ def main():
          for k in removed_keys],
         freeze="C2",
     )
+    shade_by_status(sheet, MAIN_COLUMNS)
 
-    # ---- About --------------------------------------------------------------
+    # ---- About--------------------------------------------------------------
     sheet = workbook.create_sheet("About")
     covered_sorted = sorted(covered, key=term_key)
     about = [
@@ -873,13 +909,13 @@ def main():
         ("Other headers", "Generated from the registrar's data. Anything typed there is lost on "
                           "the next rebuild."),
         ("", ""),
-        ("Slot", "Lecture slot at the most recent in-person offering in that season. "
+        ("Timeslot", "Lecture slot at the most recent in-person offering in that season. "
                  "'|' separates lectures at different times; '+ tut' lists the tutorial options. "
                  "'-' means never offered in that season. '(new 2026 F)' means the lecture slot "
                  "changed that term, so it is not yet one to rely on."),
         ("Sections", "Lectures at the most recent offering. '4 lec, 24 tut' when students register "
                      "in tutorial groups that outnumber the lectures."),
-        ("Offered", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or winters. "
+        ("Offering note", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or winters. "
                     "Otherwise: 'every year since ...' for a recent unbroken run, 'not since ...' "
                     "once two years running are skipped, or a pattern with the last term taught. "
                     "'(grad only)' means it ran under its graduate number with no undergraduate "
@@ -888,9 +924,13 @@ def main():
         ("Summer (in person)", "Online sections do not count. Summers are covered from 2017."),
         ("Online", "'yes' if offered online in the last two years. Online is never counted as a "
                    "fall, winter or summer offering."),
-        ("History", "Lectures taught in person each term. G = graduate number only. Blank = not "
-                    "taught in person. Before 2017 the count is the number of instructors."),
-        ("Instructors", "The same grid as History, with the names of who taught in person."),
+        ("Status", "Rows marked hiatus or inactive are coloured automatically; the colour "
+                   "follows whatever is typed in the Status cell."),
+        ("History", "Lectures taught in person each term, then who taught them, e.g. "
+                    "'4 (Mehmood, Lissner, Allen, Reynolds)'. Only the count shows in the narrow "
+                    "column; click the cell to read the names in the formula bar, or search for "
+                    "a name. G = graduate number only. Blank = not taught in person. Before 2017 "
+                    "the count is the number of instructors."),
         ("Other numbers", "Numbers the registrar files this course under. Their sections are "
                           "counted as this course's."),
         ("Cross-listed", "A graduate number here (e.g. MATH 6443) makes graduate-only offerings "
