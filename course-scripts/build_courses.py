@@ -516,53 +516,77 @@ def sections_text(offering):
     return str(offering["lectures"])
 
 
-def pattern_text(ran_terms, window):
-    """Describe how regularly a course runs in one season.
+def offered_text(ran_terms, window, last_label):
+    """Say how regularly a course runs in one season. Blank means every year.
 
-    window is the list of that season's terms to judge by, oldest first, e.g.
-    the last six falls.
+    ran_terms is every term of that season the course was taught, oldest
+    first. window is the terms to judge by, oldest first, e.g. the last six
+    falls. last_label names the most recent term taught.
+
+    The wording describes the current RUN rather than counting, so that a
+    deliberate change shows up quickly. A course moved from winter to fall
+    reads "every year since 2027 F" after two falls, and its winter reads
+    "not since 2027 W" after two winters; a plain count would take six years
+    to say either.
     """
     flags = [t in ran_terms for t in window]
-    count = sum(flags)
-    if count == len(window):
-        return "every year"
-    if count == 0:
-        return f"not since {term_label(ran_terms[-1])}" if ran_terms else "-"
+    if all(flags):
+        return ""  # the unremarkable case, left blank on purpose
+    if not any(flags) or not any(flags[-2:]):
+        # Never in the window, or skipped the last two years running.
+        return f"not since {last_label}"
+    # How many of the most recent terms in a row was it taught?
+    run = 0
+    for flag in reversed(flags):
+        if not flag:
+            break
+        run += 1
+    if run >= 2:
+        return f"every year since {term_label(window[-run])}"
     alternating = all(a != b for a, b in zip(flags, flags[1:]))
     if alternating and len(window) >= 4:
-        return "alternate years"
-    return f"{count} of last {len(window)}"
+        return f"alternate years; last {last_label}"
+    return f"{sum(flags)} of last {len(window)}; last {last_label}"
 
 
 def season_columns(offerings, season, window, today):
-    """The six generated cells for fall or for winter."""
+    """The four generated cells for fall or for winter."""
     ran = season_terms(offerings, season, ran_in_class)
     if not ran:
-        return ["-", "", "", "-", "", ""]
+        return ["-", "", "-", ""]
     last = ran[-1]
     in_person = season_terms(offerings, season, lambda o: o["inperson"])
     # The slot comes from the most recent term we have meeting times for.
     timed = [t for t in in_person if offerings[t]["source"] == "timetable"]
-    slot = since = sections = ""
+    slot = sections = ""
     if timed:
-        latest = offerings[timed[-1]]
+        sections = sections_text(offerings[timed[-1]])
+        slot = "(no set time)"
+    # Prefer an offering whose time is actually set. A section for next term
+    # with no time yet, or a one-off reading course, should not hide the slot
+    # the course normally sits in.
+    slotted = [t for t in timed if offerings[t]["lecture_slots"]]
+    if slotted:
+        latest = offerings[slotted[-1]]
         slot = slot_text(latest)
-        sections = sections_text(latest)
-        # Walk back while the lecture slot is unchanged, to say how long the
-        # course has sat in this slot. A long run means it can be trusted.
-        first_same = timed[-1]
-        for term in reversed(timed):
+        # Walk back while the lecture slot is unchanged, to find when the
+        # course moved into this slot. Only a RECENT move is worth a tag: it
+        # tells the reader the slot is not yet one to rely on.
+        first_same = slotted[-1]
+        for term in reversed(slotted):
             if offerings[term]["lecture_slots"] != latest["lecture_slots"]:
                 break
             first_same = term
-        since = term_label(first_same)
+        moved = first_same != slotted[0]  # there was a different slot before
+        if moved and first_same in window[-2:]:
+            slot += f" (new {term_label(first_same)})"
     # Typical size: the median of the last three offerings that have started.
     # A term still open for registration would drag the figure down.
     started = [t for t in in_person if not offerings[t]["start"] or offerings[t]["start"] <= today]
     sizes = [offerings[t]["enrolment"] for t in started[-3:]]
     enrolment = round(statistics.median(sizes)) if sizes else ""
     label = term_label(last) + (" (grad only)" if not offerings[last]["inperson"] else "")
-    return [slot, since, sections, pattern_text(ran, window), label, enrolment]
+    return [slot, sections, offered_text(ran, window, label), enrolment]
 
 
 def summer_text(offerings, covered):
@@ -613,10 +637,10 @@ def grad_numbers(cross_text):
 MAIN_COLUMNS = [
     ("Course", 11, "id"), ("Title", 34, "id"), ("CH", 5, "id"), ("Format", 11, "id"),
     ("Other numbers", 13, "hand"),
-    ("Fall slot", 30, "fall"), ("Fall since", 10, "fall"), ("Fall sections", 12, "fall"),
-    ("Fall pattern", 15, "fall"), ("Fall last", 12, "fall"), ("Fall enrol", 9, "fall"),
-    ("Winter slot", 30, "winter"), ("Winter since", 10, "winter"), ("Winter sections", 12, "winter"),
-    ("Winter pattern", 15, "winter"), ("Winter last", 12, "winter"), ("Winter enrol", 9, "winter"),
+    ("Fall slot", 34, "fall"), ("Fall sections", 12, "fall"),
+    ("Fall offered", 24, "fall"), ("Fall enrol", 9, "fall"),
+    ("Winter slot", 34, "winter"), ("Winter sections", 12, "winter"),
+    ("Winter offered", 24, "winter"), ("Winter enrol", 9, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
     ("Status", 10, "hand"), ("Required by others", 11, "hand"), ("Cross-listed", 16, "hand"),
     ("Staffing note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
@@ -666,6 +690,15 @@ def history_cell(offering):
     if offering["inperson"]:
         return offering["lectures"]
     return "G" if offering["grad_only"] else None
+
+
+def instructors_cell(offering):
+    """Who taught it in person that term, e.g. 'Reynolds, Allen, Lissner'."""
+    if offering is None:
+        return None
+    if offering["inperson"]:
+        return ", ".join(offering["instructors"]) or "(not recorded)"
+    return "(grad only)" if offering["grad_only"] else None
 
 
 def main():
@@ -787,6 +820,21 @@ def main():
                     + [history_cell(per.get(term)) for term in newest_first])
     write_table(sheet, columns, rows, freeze="C2")
 
+    # ---- Instructors --------------------------------------------------------
+    # The same grid as History, holding names instead of counts. Kept apart so
+    # History stays a pattern of 1s and blanks that can be read at a glance.
+    sheet = workbook.create_sheet("Instructors")
+    columns = [("Course", 11, "id"), ("Title", 34, "id")]
+    for term in newest_first:
+        group = {"FA": "fall", "WI": "winter", "SM": "other"}[term[5:]]
+        columns.append((term_label(term), 18, group))
+    rows = []
+    for key in main_keys:
+        per = offerings.get(key, {})
+        rows.append([course_display(key), main_hand[key].get("title", "")]
+                    + [instructors_cell(per.get(term)) for term in newest_first])
+    write_table(sheet, columns, rows, freeze="C2")
+
     # ---- Calendar -----------------------------------------------------------
     sheet = workbook.create_sheet("Calendar")
     columns = [("Course", 11, "id"), ("Title", 34, "id"), ("Description", 80, "hand"),
@@ -826,19 +874,23 @@ def main():
                           "the next rebuild."),
         ("", ""),
         ("Slot", "Lecture slot at the most recent in-person offering in that season. "
-                 "'|' separates lectures at different times; '+ tut' lists the tutorial options."),
-        ("Since", "The earliest term from which the lecture slot has been the same without a break."),
+                 "'|' separates lectures at different times; '+ tut' lists the tutorial options. "
+                 "'-' means never offered in that season. '(new 2026 F)' means the lecture slot "
+                 "changed that term, so it is not yet one to rely on."),
         ("Sections", "Lectures at the most recent offering. '4 lec, 24 tut' when students register "
                      "in tutorial groups that outnumber the lectures."),
-        ("Pattern", f"Judged over the last {args.years} falls or winters."),
-        ("Last", "The most recent term the course was taught in that season. '(grad only)' means it "
-                 "ran under its graduate number with no undergraduate section."),
+        ("Offered", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or winters. "
+                    "Otherwise: 'every year since ...' for a recent unbroken run, 'not since ...' "
+                    "once two years running are skipped, or a pattern with the last term taught. "
+                    "'(grad only)' means it ran under its graduate number with no undergraduate "
+                    "section."),
         ("Enrol", "Median total registration over the last three offerings that have started."),
         ("Summer (in person)", "Online sections do not count. Summers are covered from 2017."),
         ("Online", "'yes' if offered online in the last two years. Online is never counted as a "
                    "fall, winter or summer offering."),
         ("History", "Lectures taught in person each term. G = graduate number only. Blank = not "
                     "taught in person. Before 2017 the count is the number of instructors."),
+        ("Instructors", "The same grid as History, with the names of who taught in person."),
         ("Other numbers", "Numbers the registrar files this course under. Their sections are "
                           "counted as this course's."),
         ("Cross-listed", "A graduate number here (e.g. MATH 6443) makes graduate-only offerings "
