@@ -64,6 +64,9 @@ DEFAULT_MASTER = bc.DEFAULT_OUTPUT
 # Patrick named them as common electives. After that the list is his.
 SEED_EXTRAS = ["ECON1013", "ECON1023", "PSYC1013", "PSYC1023", "BIOL1009"]
 
+# What "Listed because" says for a course a person typed in.
+HAND = "added by hand"
+
 # A course code as written in a requirements workbook: 'MATH 1003', 'CS1073'.
 CODE = re.compile(r"\b([A-Z]{2,4})\s?(\d{4})\b")
 
@@ -73,7 +76,7 @@ COLUMNS = [
     ("Fall timeslot", 38, "fall"), ("Fall offering note", 22, "fall"),
     ("Winter timeslot", 38, "winter"), ("Winter offering note", 22, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"),
-    ("Programs", 26, "other"), ("Also seen as", 22, "other"),
+    ("Programs", 26, "other"), ("Listed because", 14, "other"), ("Also seen as", 22, "other"),
     ("Status", 10, "other"), ("Curriculum note", 36, "other"),
     ("Other numbers", 14, "hand"), ("Advising note", 44, "hand"),
 ]
@@ -168,7 +171,14 @@ def main():
     # ---- The three sources of rows ------------------------------------------
     master = sheet_records(load_workbook(Path(args.master).expanduser(), data_only=True)["MAIN"])
     programs = read_requirements(args.requirements)
-    keys = set(master) | set(programs) | set(typed)
+    # A row from the previous workbook is kept only if a person added it. The
+    # "Listed because" column says so; a row typed in since the last build has
+    # that cell blank. Rows listed for another reason must earn their place
+    # again, so a course dropped from a requirements workbook drops out here.
+    by_hand = {k for k, r in typed.items() if r.get("Listed because", "") in ("", HAND)}
+    keys = set(master) | set(programs) | by_hand
+    dropped = [k for k, r in typed.items()
+               if k not in keys and (r.get("Other numbers") or r.get("Advising note"))]
     if first_build:
         keys |= set(SEED_EXTRAS)
 
@@ -203,6 +213,7 @@ def main():
         hand = typed.get(key, {})
         tail = [hand.get("Other numbers", ""), hand.get("Advising note", "")]
         where = ", ".join(programs.get(key, []))
+        why = "master list" if key in master else "requirements" if key in programs else HAND
         if key in master:
             # Copied, not recomputed: the master list also knows about graduate
             # twins and pre-2017 history, and the two files must agree.
@@ -211,7 +222,7 @@ def main():
                          m.get("Fall timeslot", ""), m.get("Fall offering note", ""),
                          m.get("Winter timeslot", ""), m.get("Winter offering note", ""),
                          m.get("Summer (in person)", ""), m.get("Online", ""),
-                         where, m.get("Other numbers", ""),
+                         where, why, m.get("Other numbers", ""),
                          m.get("Status", ""), m.get("Notes", "")] + tail)
             continue
         per = offerings.get(key, {})
@@ -219,12 +230,12 @@ def main():
             # Its sections are counted under the newer number's row, so point there.
             rows.append([bc.course_display(key), "", "",
                          f"see {bc.course_display(renumbered[key])}",
-                         "", "", "", "", "", where, "", "", ""] + tail)
+                         "", "", "", "", "", where, why, "", "", ""] + tail)
             continue
         if not per:
             missing.append(key)
             rows.append([bc.course_display(key), "", "", "(not in the timetable since 2017)",
-                         "", "", "", "", "", where, "", "", ""] + tail)
+                         "", "", "", "", "", where, why, "", "", ""] + tail)
             continue
         title, hours = facts.get(key) or facts.get(aliases.get(key, [""])[0], ("", ""))
         fall_slot, fall_note = advising_season(per, "FA", windows["FA"], today)
@@ -233,7 +244,7 @@ def main():
         rows.append([bc.course_display(key), title, str(int(float(hours))) if hours else "",
                      fall_slot, fall_note, winter_slot, winter_note,
                      bc.summer_text(per, covered), bc.online_text(per, terms[-1]),
-                     where, ", ".join(bc.course_display(o) for o in others), "", ""] + tail)
+                     where, why, ", ".join(bc.course_display(o) for o in others), "", ""] + tail)
 
     # ---- Write ---------------------------------------------------------------
     workbook = Workbook()
@@ -262,6 +273,9 @@ def main():
                           "winters. Otherwise it says how regular the course is, and when it last ran."),
         ("Summer, Online", "Summer means in person. Online is never counted as a term offering."),
         ("Programs", "The degree-requirements workbooks that mention the course."),
+        ("Listed because", "Why the row is here: it is on the master list, a requirements workbook "
+                           "names it, or someone added it by hand. Only rows added by hand are "
+                           "carried over from the previous build."),
         ("Also seen as", "Another number the registrar has used for the same title, which usually "
                          "means the course was renumbered. If it is the same course, type the old "
                          "number in Other numbers and its history is counted."),
@@ -284,6 +298,9 @@ def main():
         print(f"  The copy it replaced was kept as {backup}")
     outside = len(rows) - len(master)
     print(f"  {len(rows)} courses: {len(master)} from the master list, {outside} others")
+    if dropped:
+        print("  No longer listed, and their typed notes went with them (see the backup):")
+        print("    " + ", ".join(bc.course_display(k) for k in dropped))
     if missing:
         print("  Not found in any timetable export (check the number):")
         print("    " + ", ".join(bc.course_display(k) for k in missing))
