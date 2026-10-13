@@ -37,6 +37,17 @@
 # Rows of kind 1 and 2 come back if deleted. A row of kind 3 stays until its
 # row is deleted.
 #
+# ONE ROW PER COURSE
+# A course that was renumbered (ESCI 1001 became ESCI 1052), or that is
+# cross-listed under a second number (MATH 4443 is also PHYS 4953), is still
+# one class in one room. It gets one row, under its current number; the other
+# numbers go in that row's "Other numbers" cell. They get no row of their own:
+# their sections count as that row's history, and a programme that cites one
+# of them is listed in that row's Programs.
+#   MATH/STAT rows   the cell is filled from the master list's "Other numbers"
+#                    and "Cross-listed" columns, which is where to change it
+#   every other row  the cell is typed here
+#
 # This script borrows its timetable reading from build_courses.py, which must
 # sit in the same folder.
 
@@ -76,10 +87,35 @@ COLUMNS = [
     ("Fall timeslot", 38, "fall"), ("Fall offering note", 22, "fall"),
     ("Winter timeslot", 38, "winter"), ("Winter offering note", 22, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"),
-    ("Programs", 26, "other"), ("Listed because", 14, "other"), ("Also seen as", 22, "other"),
+    ("Programs", 26, "other"), ("Listed because", 14, "other"),
     ("Status", 10, "other"), ("Curriculum note", 36, "other"),
-    ("Other numbers", 14, "hand"), ("Advising note", 44, "hand"),
+    ("Other numbers", 26, "hand"), ("Advising note", 44, "hand"),
 ]
+
+
+def codes_in(text):
+    """Every course number written in a cell, as keys: 'PHYS 1061, PHYS1071' -> two keys."""
+    return [subject + number for subject, number in CODE.findall(text or "")]
+
+
+def master_other_numbers(record):
+    """The other numbers a master-list course goes by: (keys, text for the cell).
+
+    The master list keeps these in two columns. "Other numbers" holds numbers
+    the registrar files the course under. "Cross-listed" holds its partners in
+    other departments, and also its graduate twins (MATH 6443), which are left
+    out here: a graduate number means nothing to an undergraduate's timetable.
+    """
+    keys, parts = [], []
+    for subject, number in CODE.findall(record.get("Other numbers", "")):
+        keys.append(subject + number)
+        parts.append(f"{subject} {number}")
+    for subject, number in CODE.findall(record.get("Cross-listed", "")):
+        if number[0] >= "6":
+            continue  # a graduate twin
+        keys.append(subject + number)
+        parts.append(f"{subject} {number} (cross-listed)")
+    return keys, ", ".join(parts)
 
 
 def any_course(key):
@@ -176,7 +212,34 @@ def main():
     # that cell blank. Rows listed for another reason must earn their place
     # again, so a course dropped from a requirements workbook drops out here.
     by_hand = {k for k, r in typed.items() if r.get("Listed because", "") in ("", HAND)}
-    keys = set(master) | set(programs) | by_hand
+
+    # ---- Other numbers: old numbers and cross-listed partners ---------------
+    # aliases maps a row's course to the other numbers it goes by; other_text
+    # is what its "Other numbers" cell shows. See ONE ROW PER COURSE above.
+    aliases, other_text = {}, {}
+    for key, record in master.items():
+        aliases[key], other_text[key] = master_other_numbers(record)
+    for key, record in typed.items():
+        if key not in master:
+            aliases[key] = codes_in(record.get("Other numbers", ""))
+            other_text[key] = record.get("Other numbers", "")
+    # The other way round: a number -> the row that holds it. A master-list
+    # course always keeps its own row, whatever another row claims. If two
+    # rows name the same number, both show it, and its sections are counted
+    # under whichever row sorts first.
+    holder = {}
+    for key in sorted(aliases, key=lambda k: (k[:-4], k[-4:])):
+        for other in aliases[key]:
+            if other not in master and other != key:
+                holder.setdefault(other, key)
+    # A programme that cites a held number is really citing the row that holds
+    # it. This also gives that row its place on the list.
+    for other, key in holder.items():
+        for name in programs.pop(other, []):
+            if name not in programs[key]:
+                programs[key].append(name)
+
+    keys = (set(master) | set(programs) | by_hand) - set(holder)
     dropped = [k for k, r in typed.items()
                if k not in keys and (r.get("Other numbers") or r.get("Advising note"))]
     if first_build:
@@ -186,14 +249,10 @@ def main():
     timetable, covered, tt_files = bc.load_timetables(
         args.timetable or bc.DEFAULT_TIMETABLES, subjects=None
     )
-    # Old numbers typed in "Other numbers" count as the course's own history.
-    aliases = {
-        key: [bc.course_key(s + n) for s, n in CODE.findall(record.get("Other numbers", ""))]
-        for key, record in typed.items()
-    }
-    # The other way round: an old number -> the row that now holds its history.
-    renumbered = {old: key for key, olds in aliases.items() for old in olds}
-    offerings = bc.build_offerings(timetable, covered, {}, [], aliases, {})
+    # A row's other numbers count as its own history. Each number is handed to
+    # one row only, the one recorded in holder.
+    counted = {key: [o for o in others if holder.get(o) == key] for key, others in aliases.items()}
+    offerings = bc.build_offerings(timetable, covered, {}, [], counted, {})
     terms = sorted(covered, key=bc.term_key)
     windows = {s: [t for t in terms if t.endswith(s)][-args.years:] for s in ("FA", "WI")}
 
@@ -209,10 +268,11 @@ def main():
     # ---- One row per course --------------------------------------------------
     rows = []
     missing = []
+    suggestions = []  # (course, numbers that have carried the same title)
     for key in sorted(keys, key=lambda k: (k[:-4], k[-4:])):
         hand = typed.get(key, {})
-        tail = [hand.get("Other numbers", ""), hand.get("Advising note", "")]
-        where = ", ".join(programs.get(key, []))
+        tail = [other_text.get(key, ""), hand.get("Advising note", "")]
+        where = ", ".join(sorted(programs.get(key, [])))
         why = "master list" if key in master else "requirements" if key in programs else HAND
         if key in master:
             # Copied, not recomputed: the master list also knows about graduate
@@ -222,29 +282,28 @@ def main():
                          m.get("Fall timeslot", ""), m.get("Fall offering note", ""),
                          m.get("Winter timeslot", ""), m.get("Winter offering note", ""),
                          m.get("Summer (in person)", ""), m.get("Online", ""),
-                         where, why, m.get("Other numbers", ""),
+                         where, why,
                          m.get("Status", ""), m.get("Notes", "")] + tail)
             continue
         per = offerings.get(key, {})
-        if key in renumbered:
-            # Its sections are counted under the newer number's row, so point there.
-            rows.append([bc.course_display(key), "", "",
-                         f"see {bc.course_display(renumbered[key])}",
-                         "", "", "", "", "", where, why, "", "", ""] + tail)
-            continue
         if not per:
             missing.append(key)
             rows.append([bc.course_display(key), "", "", "(not in the timetable since 2017)",
-                         "", "", "", "", "", where, why, "", "", ""] + tail)
+                         "", "", "", "", "", where, why, "", ""] + tail)
             continue
-        title, hours = facts.get(key) or facts.get(aliases.get(key, [""])[0], ("", ""))
+        # A course that has not yet run under its new number borrows the old one's title.
+        title, hours = facts.get(key) or facts.get((aliases.get(key) or [""])[0], ("", ""))
         fall_slot, fall_note = advising_season(per, "FA", windows["FA"], today)
         winter_slot, winter_note = advising_season(per, "WI", windows["WI"], today)
+        # Another number with the same title usually means a renumbering that
+        # "Other numbers" does not know about yet. Reported when the run ends.
         others = sorted(same_title.get((key[:-4], title.lower()), set()) - {key} - set(aliases.get(key, [])))
+        if others:
+            suggestions.append((key, others))
         rows.append([bc.course_display(key), title, str(int(float(hours))) if hours else "",
                      fall_slot, fall_note, winter_slot, winter_note,
                      bc.summer_text(per, covered), bc.online_text(per, terms[-1]),
-                     where, why, ", ".join(bc.course_display(o) for o in others), "", ""] + tail)
+                     where, why, "", ""] + tail)
 
     # ---- Write ---------------------------------------------------------------
     workbook = Workbook()
@@ -276,9 +335,11 @@ def main():
         ("Listed because", "Why the row is here: it is on the master list, a requirements workbook "
                            "names it, or someone added it by hand. Only rows added by hand are "
                            "carried over from the previous build."),
-        ("Also seen as", "Another number the registrar has used for the same title, which usually "
-                         "means the course was renumbered. If it is the same course, type the old "
-                         "number in Other numbers and its history is counted."),
+        ("Other numbers", "Other numbers the same course goes by: one it was renumbered from, or one "
+                          "it is cross-listed under. Those numbers get no row of their own; their "
+                          "sections and their programmes are counted in this row. For a MATH/STAT "
+                          "row the cell is filled from the master list, so change it there; for "
+                          "every other row, type it here."),
         ("Status, Curriculum note", "Copied from the MATH/STAT master list, which is where to change them."),
         ("Always check", "This is a guide to what is usual. The online timetable is the authority "
                          "for what is actually scheduled."),
@@ -304,6 +365,11 @@ def main():
     if missing:
         print("  Not found in any timetable export (check the number):")
         print("    " + ", ".join(bc.course_display(k) for k in missing))
+    if suggestions:
+        print("  Same title under another number (if it is the same course, type the")
+        print("  other number in that row's Other numbers):")
+        for key, others in suggestions:
+            print(f"    {bc.course_display(key)}: " + ", ".join(bc.course_display(o) for o in others))
 
 
 if __name__ == "__main__":
