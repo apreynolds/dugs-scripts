@@ -181,6 +181,8 @@ def main():
         key: [bc.course_key(s + n) for s, n in CODE.findall(record.get("Other numbers", ""))]
         for key, record in typed.items()
     }
+    # The other way round: an old number -> the row that now holds its history.
+    renumbered = {old: key for key, olds in aliases.items() for old in olds}
     offerings = bc.build_offerings(timetable, covered, {}, [], aliases, {})
     terms = sorted(covered, key=bc.term_key)
     windows = {s: [t for t in terms if t.endswith(s)][-args.years:] for s in ("FA", "WI")}
@@ -213,6 +215,12 @@ def main():
                          m.get("Status", ""), m.get("Notes", "")] + tail)
             continue
         per = offerings.get(key, {})
+        if key in renumbered:
+            # Its sections are counted under the newer number's row, so point there.
+            rows.append([bc.course_display(key), "", "",
+                         f"see {bc.course_display(renumbered[key])}",
+                         "", "", "", "", "", where, "", "", ""] + tail)
+            continue
         if not per:
             missing.append(key)
             rows.append([bc.course_display(key), "", "", "(not in the timetable since 2017)",
