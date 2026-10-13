@@ -201,11 +201,12 @@ def section_meetings(row):
     return ", ".join(lecture), ", ".join(tutorial)
 
 
-def load_timetables(paths):
+def load_timetables(paths, subjects=SUBJECTS):
     """Read every timetable export and return (rows_by_course_term, covered_terms).
 
     rows_by_course_term maps (course, term) to the list of section rows.
     covered_terms is the set of terms for which an export holds the full term.
+    subjects limits which subjects are kept; None keeps every subject.
     """
     files = []
     for path in paths:
@@ -222,7 +223,7 @@ def load_timetables(paths):
     for file in files:
         for row in read_csv(file):
             rows_in_term[row["Term"]] += 1
-            if row["Subject"] in SUBJECTS:
+            if subjects is None or row["Subject"] in subjects:
                 sections[(row["Term"], row["Section Name"])] = row
 
     covered = {t for t, n in rows_in_term.items() if n >= MIN_ROWS_FOR_COVERAGE}
@@ -754,16 +755,41 @@ def backup_existing(output):
     """Copy the workbook about to be overwritten, and return where the copy went.
 
     The workbook holds typed columns that exist nowhere else, so it is never
-    overwritten without a dated copy. The copy goes in a 'zzzzz' folder beside
-    it (Patrick's archive folders) if there is one, else right beside it.
+    overwritten without a dated copy. The copy goes in a 'zzzzz' folder
+    (Patrick's archive folders) beside it or one level up, else right beside it.
     """
     if not output.exists():
         return None
-    archive = output.parent / "zzzzz"
-    folder = archive if archive.is_dir() else output.parent
+    folder = output.parent
+    for archive in (output.parent / "zzzzz", output.parent.parent / "zzzzz"):
+        if archive.is_dir():
+            folder = archive
+            break
     stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
     backup = folder / f"{output.stem}_{stamp}{output.suffix}"
     shutil.copy2(output, backup)  # copy2 keeps the file's modified date
+    return backup
+
+
+def refuse_if_open(output):
+    """Stop if Excel has the workbook open.
+
+    Excel leaves a '~$name.xlsx' file beside a workbook it has open. Writing
+    underneath an open workbook invites Excel to save its old copy back on top.
+    """
+    lock = output.with_name("~$" + output.name)
+    if lock.exists():
+        sys.exit(f"{output.name} looks open in Excel ({lock.name} exists). Close it and run again.")
+
+
+def save_safely(workbook, output):
+    """Back up whatever is at output, then save there. Returns the backup's path."""
+    backup = backup_existing(output)
+    # Save under a temporary name and then swap it in, so a crash part-way
+    # through saving cannot leave a half-written workbook.
+    temporary = output.with_name(output.stem + ".tmp.xlsx")
+    workbook.save(temporary)
+    os.replace(temporary, output)
     return backup
 
 
@@ -791,11 +817,7 @@ def main():
     if not previous.exists():
         sys.exit(f"Cannot find {previous}.\n"
                  "Give --previous the workbook that holds the typed columns.")
-    # Excel leaves a '~$name.xlsx' file beside a workbook it has open. Writing
-    # underneath an open workbook invites Excel to save its old copy back on top.
-    lock = output.with_name("~$" + output.name)
-    if lock.exists():
-        sys.exit(f"{output.name} looks open in Excel ({lock.name} exists). Close it and run again.")
+    refuse_if_open(output)
 
     today = datetime.date.today().isoformat()
     timetable, covered, tt_files = load_timetables(args.timetable or DEFAULT_TIMETABLES)
@@ -985,12 +1007,7 @@ def main():
         row[0].font = Font(bold=True)
         row[1].alignment = Alignment(wrap_text=True, vertical="top")
 
-    backup = backup_existing(output)
-    # Save under a temporary name and then swap it in, so a crash part-way
-    # through saving cannot leave a half-written master list.
-    temporary = output.with_name(output.stem + ".tmp.xlsx")
-    workbook.save(temporary)
-    os.replace(temporary, output)
+    backup = save_safely(workbook, output)
 
     print(f"Wrote {output}")
     if backup:

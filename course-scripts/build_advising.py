@@ -1,0 +1,285 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# dependencies = ["openpyxl"]
+# ///
+# build_advising.py — build the advising timetable: when the courses our students take usually run.
+# Usage:
+#   ./build_advising.py                     rebuild the advising timetable in place
+#   ./build_advising.py -o OUT.xlsx         write a trial copy somewhere else
+#   ./build_advising.py --previous OLD.xlsx -o OUT.xlsx
+#   ./build_advising.py -h | --help
+#
+#   -o, --output        workbook to write (default: advising-timetable.xlsx in
+#                       TEAM-Advising/resources). Always written from scratch.
+#                       A file already there is first copied, with the date
+#                       and time in its name, into a zzzzz folder. Refuses to
+#                       run while the workbook is open in Excel
+#   -p, --previous      workbook read ONLY for the typed columns (default: the
+#                       output workbook itself, if it exists)
+#   -m, --master        the MATH/STAT master list written by build_courses.py
+#   -r, --requirements  folder of degree-requirements workbooks
+#   -t, --timetable     an Informer "UNB Timetable Data" export, or a directory
+#                       of them; repeat the flag for several
+#       --years N       how many years the offering notes look back (default 6)
+#
+# WHAT THIS IS FOR
+# One sheet an advisor can open in a meeting: every course that matters to a
+# Mathematics/Statistics student, with the slot it usually sits in. It is the
+# companion of the master list, and follows the same rule: columns with a
+# yellow header are typed by a person and survive every rebuild; everything
+# else is regenerated.
+#
+# WHICH COURSES ARE ON IT
+#   1. every course on the MATH/STAT master list (its cells are copied from
+#      there, so the two files cannot disagree)
+#   2. every other course named in a degree-requirements workbook
+#   3. any course typed into the Course column: common electives and the like
+# Rows of kind 1 and 2 come back if deleted. A row of kind 3 stays until its
+# row is deleted.
+#
+# This script borrows its timetable reading from build_courses.py, which must
+# sit in the same folder.
+
+import argparse
+import datetime
+import re
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font
+
+import build_courses as bc
+
+# ----------------------------------------------------------------------------
+# Defaults
+# ----------------------------------------------------------------------------
+ADVISING = Path.home() / "Documents/3work/TEAM-Advising"
+DEFAULT_OUTPUT = ADVISING / "resources/advising-timetable.xlsx"
+DEFAULT_REQUIREMENTS = ADVISING / "degree-requirements"
+DEFAULT_MASTER = bc.DEFAULT_OUTPUT
+
+# Courses put on the list the first time the workbook is created, because
+# Patrick named them as common electives. After that the list is his.
+SEED_EXTRAS = ["ECON1013", "ECON1023", "PSYC1013", "PSYC1023", "BIOL1009"]
+
+# A course code as written in a requirements workbook: 'MATH 1003', 'CS1073'.
+CODE = re.compile(r"\b([A-Z]{2,4})\s?(\d{4})\b")
+
+# (heading, width, group); "hand" marks the typed columns, as in build_courses.
+COLUMNS = [
+    ("Course", 11, "hand"), ("Title", 34, "id"), ("CH", 5, "id"),
+    ("Fall timeslot", 38, "fall"), ("Fall offering note", 22, "fall"),
+    ("Winter timeslot", 38, "winter"), ("Winter offering note", 22, "winter"),
+    ("Summer (in person)", 20, "other"), ("Online", 11, "other"),
+    ("Programs", 26, "other"), ("Also seen as", 22, "other"),
+    ("Status", 10, "other"), ("Curriculum note", 36, "other"),
+    ("Other numbers", 14, "hand"), ("Advising note", 44, "hand"),
+]
+
+
+def any_course(key):
+    """True for anything shaped like a course number, whatever the subject."""
+    return re.fullmatch(r"[A-Z]{2,4}\d{4}", key) is not None
+
+
+def sheet_records(sheet):
+    """Read a sheet with a header row into {course: {heading: text}}."""
+    rows = sheet.iter_rows(values_only=True)
+    header = [str(h).strip() if h is not None else "" for h in next(rows, [])]
+    found = {}
+    if "Course" not in header:
+        return found
+    for row in rows:
+        record = {h: ("" if v is None else str(v).strip()) for h, v in zip(header, row) if h}
+        key = bc.course_key(record.get("Course", ""))
+        if any_course(key):
+            found[key] = record
+    return found
+
+
+def read_requirements(folder):
+    """Return {course: [programme names]} for every course a workbook mentions."""
+    programs = defaultdict(list)
+    for path in sorted(Path(folder).glob("*.xlsx")):
+        if path.name.startswith("~$"):
+            continue  # Excel's lock file, not a workbook
+        book = load_workbook(path, data_only=True)
+        if "Requirements" not in book.sheetnames:
+            continue
+        # 'bsc-math-2020' -> 'bsc-math': short enough to list several in a cell.
+        name = re.sub(r"-\d{4}$", "", path.stem)
+        for sheet_name in ("Requirements", "Constraints"):
+            if sheet_name not in book.sheetnames:
+                continue
+            for row in book[sheet_name].iter_rows(values_only=True):
+                for value in row:
+                    for subject, number in CODE.findall(str(value or "")):
+                        if name not in programs[subject + number]:
+                            programs[subject + number].append(name)
+    return programs
+
+
+def advising_season(per, season, window, today):
+    """(timeslot, offering note) for one course in fall or winter."""
+    slot, _, offered, _ = bc.season_columns(per, season, window, today)
+    if slot == "(no set time)":
+        # A lab course has no lecture, so every section is one of its lab
+        # times. Show those, from the most recent term that has any.
+        with_labs = [t for t in sorted(per, key=bc.term_key)
+                     if t.endswith(season) and per[t]["inperson"] and per[t]["tutorial_slots"]]
+        if with_labs:
+            slot = "lab/tut: " + " / ".join(per[with_labs[-1]]["tutorial_slots"])
+    # Outside MATH/STAT the extra meeting is as often a lab as a tutorial.
+    return slot.replace(" + tut ", " + lab/tut "), offered
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Build the advising timetable from the master list and Informer exports."
+    )
+    parser.add_argument("-o", "--output", default=DEFAULT_OUTPUT,
+                        help="workbook to write (default: the advising timetable itself)")
+    parser.add_argument("-p", "--previous",
+                        help="workbook to read the typed columns from (default: the output)")
+    parser.add_argument("-m", "--master", default=DEFAULT_MASTER,
+                        help="the MATH/STAT master list")
+    parser.add_argument("-r", "--requirements", default=DEFAULT_REQUIREMENTS,
+                        help="folder of degree-requirements workbooks")
+    parser.add_argument("-t", "--timetable", action="append",
+                        help="timetable export or directory of them (repeatable)")
+    parser.add_argument("--years", type=int, default=6,
+                        help="years the offering notes look back (default 6)")
+    args = parser.parse_args()
+
+    output = Path(args.output).expanduser()
+    previous = Path(args.previous).expanduser() if args.previous else output
+    bc.refuse_if_open(output)
+    today = datetime.date.today().isoformat()
+
+    # ---- What a person typed ------------------------------------------------
+    first_build = not previous.exists()
+    typed = {}
+    if not first_build:
+        book = load_workbook(previous, data_only=True)
+        typed = sheet_records(book["Timetable"])
+
+    # ---- The three sources of rows ------------------------------------------
+    master = sheet_records(load_workbook(Path(args.master).expanduser(), data_only=True)["MAIN"])
+    programs = read_requirements(args.requirements)
+    keys = set(master) | set(programs) | set(typed)
+    if first_build:
+        keys |= set(SEED_EXTRAS)
+
+    # ---- Timetable facts for the courses that are not on the master list ----
+    timetable, covered, tt_files = bc.load_timetables(
+        args.timetable or bc.DEFAULT_TIMETABLES, subjects=None
+    )
+    # Old numbers typed in "Other numbers" count as the course's own history.
+    aliases = {
+        key: [bc.course_key(s + n) for s, n in CODE.findall(record.get("Other numbers", ""))]
+        for key, record in typed.items()
+    }
+    offerings = bc.build_offerings(timetable, covered, {}, [], aliases, {})
+    terms = sorted(covered, key=bc.term_key)
+    windows = {s: [t for t in terms if t.endswith(s)][-args.years:] for s in ("FA", "WI")}
+
+    # The latest title and credit hours the registrar has for each number, and
+    # which numbers have shared a title (how a renumbering shows up).
+    facts = {}
+    for (course, term), rows in sorted(timetable.items(), key=lambda kv: bc.term_key(kv[0][1])):
+        facts[course] = (rows[0]["Course Title"].strip(), rows[0]["Credit Hours"])
+    same_title = defaultdict(set)
+    for course, (title, _) in facts.items():
+        same_title[(course[:-4], title.lower())].add(course)
+
+    # ---- One row per course --------------------------------------------------
+    rows = []
+    missing = []
+    for key in sorted(keys, key=lambda k: (k[:-4], k[-4:])):
+        hand = typed.get(key, {})
+        tail = [hand.get("Other numbers", ""), hand.get("Advising note", "")]
+        where = ", ".join(programs.get(key, []))
+        if key in master:
+            # Copied, not recomputed: the master list also knows about graduate
+            # twins and pre-2017 history, and the two files must agree.
+            m = master[key]
+            rows.append([bc.course_display(key), m.get("Title", ""), m.get("CH", ""),
+                         m.get("Fall timeslot", ""), m.get("Fall offering note", ""),
+                         m.get("Winter timeslot", ""), m.get("Winter offering note", ""),
+                         m.get("Summer (in person)", ""), m.get("Online", ""),
+                         where, m.get("Other numbers", ""),
+                         m.get("Status", ""), m.get("Notes", "")] + tail)
+            continue
+        per = offerings.get(key, {})
+        if not per:
+            missing.append(key)
+            rows.append([bc.course_display(key), "", "", "(not in the timetable since 2017)",
+                         "", "", "", "", "", where, "", "", ""] + tail)
+            continue
+        title, hours = facts.get(key) or facts.get(aliases.get(key, [""])[0], ("", ""))
+        fall_slot, fall_note = advising_season(per, "FA", windows["FA"], today)
+        winter_slot, winter_note = advising_season(per, "WI", windows["WI"], today)
+        others = sorted(same_title.get((key[:-4], title.lower()), set()) - {key} - set(aliases.get(key, [])))
+        rows.append([bc.course_display(key), title, str(int(float(hours))) if hours else "",
+                     fall_slot, fall_note, winter_slot, winter_note,
+                     bc.summer_text(per, covered), bc.online_text(per, terms[-1]),
+                     where, ", ".join(bc.course_display(o) for o in others), "", ""] + tail)
+
+    # ---- Write ---------------------------------------------------------------
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Timetable"
+    bc.write_table(sheet, COLUMNS, rows, freeze="C2")
+    bc.shade_by_status(sheet, COLUMNS)
+
+    about = [
+        ("Built", f"{today} by build_advising.py"),
+        ("Timetable exports", f"{len(tt_files)} files, {bc.term_label(terms[0])} to {bc.term_label(terms[-1])}"),
+        ("MATH/STAT rows copied from", str(args.master)),
+        ("Programs read from", str(args.requirements)),
+        ("", ""),
+        ("Yellow headers", "Typed by a person and carried across unchanged on every rebuild."),
+        ("Other headers", "Generated. Anything typed there is lost on the next rebuild."),
+        ("To add a course", "Type its number in the Course column of a new row and rebuild."),
+        ("To remove a course", "Delete its row. A course on the master list or named in a "
+                               "degree-requirements workbook comes back on the next rebuild."),
+        ("", ""),
+        ("Timeslot", "Where the course sat the last time it ran in person in that season. '|' "
+                     "separates lectures at different times; '+ lab/tut' lists the lab or tutorial "
+                     "options. '-' means never offered in that season. '(new 2026 F)' means the "
+                     "slot changed that term, so it is not yet one to rely on."),
+        ("Offering note", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or "
+                          "winters. Otherwise it says how regular the course is, and when it last ran."),
+        ("Summer, Online", "Summer means in person. Online is never counted as a term offering."),
+        ("Programs", "The degree-requirements workbooks that mention the course."),
+        ("Also seen as", "Another number the registrar has used for the same title, which usually "
+                         "means the course was renumbered. If it is the same course, type the old "
+                         "number in Other numbers and its history is counted."),
+        ("Status, Curriculum note", "Copied from the MATH/STAT master list, which is where to change them."),
+        ("Always check", "This is a guide to what is usual. The online timetable is the authority "
+                         "for what is actually scheduled."),
+    ]
+    info = workbook.create_sheet("About")
+    info.column_dimensions["A"].width = 28
+    info.column_dimensions["B"].width = 110
+    for label, text in about:
+        info.append([label, text])
+    for row in info.iter_rows():
+        row[0].font = Font(bold=True)
+        row[1].alignment = Alignment(wrap_text=True, vertical="top")
+
+    backup = bc.save_safely(workbook, output)
+    print(f"Wrote {output}")
+    if backup:
+        print(f"  The copy it replaced was kept as {backup}")
+    outside = len(rows) - len(master)
+    print(f"  {len(rows)} courses: {len(master)} from the master list, {outside} others")
+    if missing:
+        print("  Not found in any timetable export (check the number):")
+        print("    " + ", ".join(bc.course_display(k) for k in missing))
+
+
+if __name__ == "__main__":
+    main()
