@@ -70,6 +70,7 @@ from openpyxl.comments import Comment
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 # ----------------------------------------------------------------------------
 # Defaults. The data lives outside this repository, on purpose.
@@ -665,6 +666,11 @@ HEADER_NOTES = {
     "Winter enrol": "Median of the last 3 offerings.",
 }
 
+# Each sheet is declared as an Excel table. None means no table style, so the
+# sheet keeps the header colours above and nothing else. To try one of Excel's
+# own styles (banded rows and so on), put its name here, e.g. "TableStyleLight1".
+TABLE_STYLE = None
+
 # Rows whose Status says the course is not currently running are greyed out.
 # (text colour for the whole row, fill colour for the Status cell itself)
 STATUS_COLOURS = {
@@ -698,8 +704,39 @@ def shade_by_status(sheet, columns):
         )
 
 
+def declare_table(sheet):
+    """Tell Excel that the cells just written are a table (Insert > Table).
+
+    Without this the sheet only looks like a table. Declaring it gives the
+    Table tab in the ribbon, the table-aware Insert/Delete menu, and a table
+    that grows by itself when a row is typed underneath it.
+    """
+    last = get_column_letter(sheet.max_column)
+    area = f"A1:{last}{sheet.max_row}"
+    if sheet.max_row < 2:
+        # Excel refuses a table that has a header and no data rows, so an
+        # empty sheet gets plain filter arrows instead.
+        sheet.auto_filter.ref = area
+        return
+    # A table's name must be unique in the workbook and may not contain
+    # spaces, so it is made from the sheet's name: tblMAIN, tblHistory, ...
+    name = "tbl" + re.sub(r"\W", "", sheet.title)
+    table = Table(displayName=name, ref=area)
+    if TABLE_STYLE:
+        table.tableStyleInfo = TableStyleInfo(name=TABLE_STYLE, showRowStripes=True)
+    # The filter arrows now belong to the table. sheet.auto_filter must NOT be
+    # set as well: with both, Excel says the file is damaged and repairs it.
+    sheet.add_table(table)
+
+
 def write_table(sheet, columns, rows, freeze):
-    """Write a header row and data rows, with widths, filter and frozen panes."""
+    """Write a header row and data rows as an Excel table, with widths and frozen panes."""
+    # Excel insists that every heading of a table is filled in and that no two
+    # are the same (it ignores case). Stop here with a clear message, rather
+    # than write a workbook that Excel would have to repair.
+    headings = [str(heading).strip().lower() for heading, _, _ in columns]
+    if "" in headings or len(set(headings)) != len(headings):
+        sys.exit(f"Sheet {sheet.title}: every column needs its own, non-blank heading.")
     for index, (heading, width, group) in enumerate(columns, start=1):
         cell = sheet.cell(row=1, column=index, value=heading)
         cell.font = Font(bold=True)
@@ -714,7 +751,7 @@ def write_table(sheet, columns, rows, freeze):
         for cell in row:
             cell.alignment = Alignment(wrap_text=True, vertical="top")
     sheet.freeze_panes = freeze
-    sheet.auto_filter.ref = sheet.dimensions
+    declare_table(sheet)
 
 
 def main_row(key, hand, offerings, windows, covered, latest_term, today):
