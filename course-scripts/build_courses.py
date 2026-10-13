@@ -436,6 +436,9 @@ HEADINGS = {
     "staffing": ["Instructor note", "Staffing note"],
     "notes": ["Notes", "MY NOTES", "my NOTES"],
     "check": ["Check"],
+    # These two exist only on the removed sheet.
+    "lastcal": ["Last calendar"],
+    "reason": ["Reason"],
     "description": ["Description", "DESCRIPTION"],
     "prereq": ["Prereq", "PREREQ"],
     "calnotes": ["Calendar notes", "NOTES"],
@@ -655,6 +658,9 @@ MAIN_COLUMNS = [
     ("Status", 10, "hand"), ("Required by others", 11, "hand"), ("Cross-listed", 16, "hand"),
     ("Instructor note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
 ]
+# The removed sheet is MAIN's layout plus two typed columns: the last calendar
+# year the course had an entry, and why it was taken out.
+REMOVED_COLUMNS = MAIN_COLUMNS + [("Last calendar", 16, "hand"), ("Reason", 60, "hand")]
 FILLS = {
     "id": "D9D9D9", "fall": "F8CBAD", "winter": "BDD7EE", "other": "E2EFDA", "hand": "FFF2CC",
 }
@@ -987,12 +993,13 @@ def main():
     sheet = workbook.create_sheet("removed")
     removed_keys = sorted(removed_hand, key=sort_key)
     write_table(
-        sheet, MAIN_COLUMNS,
+        sheet, REMOVED_COLUMNS,
         [main_row(k, removed_hand[k], offerings.get(k, {}), windows, covered, latest_term, today)
+         + [removed_hand[k].get("lastcal", ""), removed_hand[k].get("reason", "")]
          for k in removed_keys],
         freeze="C2",
     )
-    shade_by_status(sheet, MAIN_COLUMNS)
+    shade_by_status(sheet, REMOVED_COLUMNS)
 
     # ---- About--------------------------------------------------------------
     sheet = workbook.create_sheet("About")
@@ -1027,6 +1034,9 @@ def main():
                    "fall, winter or summer offering."),
         ("Status", "Rows marked hiatus or inactive are coloured automatically; the colour "
                    "follows whatever is typed in the Status cell."),
+        ("removed", "Courses taken out of the calendar. 'Last calendar' is the last calendar year "
+                    "with an entry for the course; 'Reason' is why it went, quoted from the "
+                    "department's submission where one was found. Both are typed."),
         ("History", "Lectures taught in person each term. G = graduate number only. Blank = not "
                     "taught in person. Before 2017 the count is the number of instructors."),
         ("Instructors", "The same grid as History, with the names of who taught in person."),
