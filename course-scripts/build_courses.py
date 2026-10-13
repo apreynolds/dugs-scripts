@@ -658,9 +658,13 @@ MAIN_COLUMNS = [
     ("Status", 10, "hand"), ("Required by others", 11, "hand"), ("Cross-listed", 16, "hand"),
     ("Instructor note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
 ]
-# The removed sheet is MAIN's layout plus two typed columns: the last calendar
-# year the course had an entry, and why it was taken out.
-REMOVED_COLUMNS = MAIN_COLUMNS + [("Last calendar", 16, "hand"), ("Reason", 60, "hand")]
+# The removed sheet is a record, not a planning tool, so it has none of MAIN's
+# timetable columns. Only "Last taught" is generated; the rest is typed.
+REMOVED_COLUMNS = [
+    ("Course", 11, "id"), ("Title", 34, "id"), ("CH", 5, "id"), ("Format", 11, "id"),
+    ("Last calendar", 16, "hand"), ("Last taught", 26, "other"),
+    ("Reason", 60, "hand"), ("Notes", 60, "hand"),
+]
 FILLS = {
     "id": "D9D9D9", "fall": "F8CBAD", "winter": "BDD7EE", "other": "E2EFDA", "hand": "FFF2CC",
 }
@@ -774,6 +778,20 @@ def main_row(key, hand, offerings, windows, covered, latest_term, today):
         + [hand.get("status", ""), "yes" if reqd == "1" else reqd, hand.get("cross", ""),
            hand.get("staffing", ""), hand.get("notes", ""), hand.get("check", "")]
     )
+
+
+def removed_row(key, hand, offerings, first_term):
+    """One row of the removed sheet."""
+    # Every term the course was taught, in any season, oldest first.
+    ran = sorted((t for t, o in offerings.items() if ran_in_class(o)), key=term_key)
+    if ran:
+        names = instructors_cell(offerings[ran[-1]])
+        last_taught = term_label(ran[-1]) + (f" ({names})" if names else "")
+    else:
+        # The registrar's data only reaches back so far; say how far.
+        last_taught = f"before {term_label(first_term)}"
+    return [course_display(key), hand.get("title", ""), hand.get("ch", ""), hand.get("format", ""),
+            hand.get("lastcal", ""), last_taught, hand.get("reason", ""), hand.get("notes", "")]
 
 
 def history_cell(offering):
@@ -994,12 +1012,9 @@ def main():
     removed_keys = sorted(removed_hand, key=sort_key)
     write_table(
         sheet, REMOVED_COLUMNS,
-        [main_row(k, removed_hand[k], offerings.get(k, {}), windows, covered, latest_term, today)
-         + [removed_hand[k].get("lastcal", ""), removed_hand[k].get("reason", "")]
-         for k in removed_keys],
+        [removed_row(k, removed_hand[k], offerings.get(k, {}), all_terms[0]) for k in removed_keys],
         freeze="C2",
     )
-    shade_by_status(sheet, REMOVED_COLUMNS)
 
     # ---- About--------------------------------------------------------------
     sheet = workbook.create_sheet("About")
@@ -1036,7 +1051,9 @@ def main():
                    "follows whatever is typed in the Status cell."),
         ("removed", "Courses taken out of the calendar. 'Last calendar' is the last calendar year "
                     "with an entry for the course; 'Reason' is why it went, quoted from the "
-                    "department's submission where one was found. Both are typed."),
+                    "department's submission where one was found. 'Last taught' is generated: the "
+                    "most recent term with a section, and who taught it. To bring a course back, "
+                    "type its row on MAIN and delete it here."),
         ("History", "Lectures taught in person each term. G = graduate number only. Blank = not "
                     "taught in person. Before 2017 the count is the number of instructors."),
         ("Instructors", "The same grid as History, with the names of who taught in person."),
