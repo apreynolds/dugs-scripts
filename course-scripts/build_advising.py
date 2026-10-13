@@ -205,8 +205,14 @@ def main():
         typed = sheet_records(book["Timetable"])
 
     # ---- The three sources of rows ------------------------------------------
-    master = sheet_records(load_workbook(Path(args.master).expanduser(), data_only=True)["MAIN"])
+    master_book = load_workbook(Path(args.master).expanduser(), data_only=True)
+    master = sheet_records(master_book["MAIN"])
     programs = read_requirements(args.requirements)
+    # A course on the master list's removed sheet is out of the calendar, so it
+    # gets no row here even while a requirements workbook still names it.
+    # Those are reported at the end: the workbook is what needs correcting.
+    removed = set(sheet_records(master_book["removed"])) if "removed" in master_book.sheetnames else set()
+    stale = {key: programs.pop(key) for key in sorted(removed & set(programs))}
     # A row from the previous workbook is kept only if a person added it. The
     # "Listed because" column says so; a row typed in since the last build has
     # that cell blank. Rows listed for another reason must earn their place
@@ -362,6 +368,11 @@ def main():
     if dropped:
         print("  No longer listed, and their typed notes went with them (see the backup):")
         print("    " + ", ".join(bc.course_display(k) for k in dropped))
+    if stale:
+        print("  Left out because the master list has them on its removed sheet, though a")
+        print("  requirements workbook still names them:")
+        for key, names in stale.items():
+            print(f"    {bc.course_display(key)}: " + ", ".join(sorted(names)))
     if missing:
         print("  Not found in any timetable export (check the number):")
         print("    " + ", ".join(bc.course_display(k) for k in missing))
