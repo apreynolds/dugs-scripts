@@ -43,9 +43,12 @@ ENTRY = re.compile(r"^([A-Z]{2,6})\s?(\d{4})\s*\|\s*([^|]*)")
 # A subject followed by one or more numbers: 'MATH 1003', 'MATH 1003/1013',
 # 'STAT 3083 and 3093', 'MATH 2003, 2013'. The shorthand forms matter: a plain
 # search for 'MATH 1013' would miss the second course in each of them.
+# A second subject can sit between the first and the number, as in
+# 'STAT(DATA) 1001' or 'MATH/LING 4903'; the number then counts for both.
 SUBJECT = r"[A-Z]{2,6}"
 CITED = re.compile(
-    r"\b(" + SUBJECT + r")[\s*]?(\d{4})((?:\s*(?:/|,|,?\s+and|,?\s+or|&)\s*\(?\d{4}\)?(?!\s*ch\b))*)"
+    r"\b(" + SUBJECT + r")(?:[(/](" + SUBJECT + r")\)?)?"
+    r"[\s*]?(\d{4})((?:\s*(?:/|,|,?\s+and|,?\s+or|&)\s*\(?\d{4}\)?(?!\s*ch\b))*)"
 )
 
 # Our own program regulations: pages where every cited course is checked.
@@ -60,11 +63,12 @@ DEFAULT_CHECK = [
 def cited_courses(line):
     """Every course a line of text names, as 'MATH 1003' strings, in order."""
     found = []
-    for subject, first, more in CITED.findall(line):
+    for subject, second, first, more in CITED.findall(line):
         for number in [first] + re.findall(r"\d{4}", more):
-            code = f"{subject} {number}"
-            if code not in found:
-                found.append(code)
+            for name in [subject, second]:
+                code = f"{name} {number}"
+                if name and code not in found:
+                    found.append(code)
     return found
 
 
@@ -93,9 +97,11 @@ def cited_roles(line):
                 # longer word wins if both end at the same place.
                 if hit.end() > where:
                     role, where = name, hit.end()
-        subject, first, more = match.groups()
+        subject, second, first, more = match.groups()
         for number in [first] + re.findall(r"\d{4}", more):
-            roles.setdefault(f"{subject} {number}", role)
+            for name in [subject, second]:
+                if name:
+                    roles.setdefault(f"{name} {number}", role)
     return roles
 
 
