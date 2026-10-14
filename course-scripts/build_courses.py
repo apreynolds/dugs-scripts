@@ -25,6 +25,8 @@
 #                     per term
 #       --years N     how many years the fall/winter "pattern" looks back
 #                     (default 6)
+#       --sweep DIR   calendar-year folder holding sweep_references.py's
+#                     output (default: the newest one that has it)
 #
 # With no -p/-t/-s the defaults near the top of this file are used; they point
 # at Patrick's curriculum and timetable-committee folders.
@@ -82,6 +84,9 @@ DEFAULT_TIMETABLES = [
 ]
 DEFAULT_SUMMARIES = DUGS / "curriculum/informer5-course-summaries"
 DEFAULT_OUTPUT = DUGS / "curriculum/COURSES-math-stat.xlsx"
+# sweep_references.py writes its results into each calendar year's folder;
+# the newest year that has them is used for "Required by others".
+CALENDAR_DIR = DUGS / "curriculum/academic-calendar"
 
 # Subjects that belong on the list, in the order they are sorted.
 SUBJECTS = ["MATH", "STAT", "DATA"]
@@ -643,6 +648,110 @@ def grad_numbers(cross_text):
 
 
 # ----------------------------------------------------------------------------
+# Who else names each course ("Required by others")
+# ----------------------------------------------------------------------------
+# Only the short list of units is kept here. Which program, and whether the
+# course is required, one of a list or an option, is in the department's
+# reference, curriculum/COURSES-required-by-other-units.md, which a person
+# keeps; a script cannot judge that reliably.
+#
+# A program page is turned into a unit by the first rule below whose text
+# appears in the page's path. "" means the page does not count: our own
+# programs.
+PAGE_UNITS = [
+    ("mathematicsstatisticsoption", ""),
+    ("bachelorofscienceinengineering", "Engineering"),
+    ("softwarenegineering", "Engineering"),  # the calendar's own spelling
+    ("bachelorofgeomatics", "Engineering"),
+    ("computerscience", "CS"),
+    ("concurrent-bscbsc", "CS"),
+    ("bachelorofbusinessadministration", "Management"),
+    ("biologyoption", "Biology"),
+    ("chemistryoption", "Chemistry"),
+    ("earthsciencesoption", "Earth Sciences"),
+    ("environmentalgeosciencesoption", "Earth Sciences"),
+    ("economicsoption", "Economics"),
+    ("physicsoption", "Physics"),
+    ("psychologyoption", "Psychology"),
+    ("medicallaboratoryscience", "Med Lab Science"),
+    ("foundationsofbiomedicalsciences", "Biomedical Sciences cert"),
+    ("bachelorofscience/index", "BSc first year"),
+    ("kinesiology", "Kinesiology"),
+    ("recreationandsport", "Recreation and Sport"),
+    ("nursing", "Nursing"),
+    ("forestry", "Forestry and EM"),
+    ("environmentalmanagement", "Forestry and EM"),
+    ("bachelorofarts", "Arts"),
+]
+# The interdepartmental page holds many programs; the second part of the
+# section heading names the program, and each program names its units.
+INTERDEPARTMENTAL_UNITS = {
+    "Biology-Chemistry": ["Biology", "Chemistry"],
+    "Biology-Physics": ["Biology", "Physics"],
+    "Biology-Psychology": ["Biology", "Psychology"],
+    "Chemistry-Physics": ["Chemistry", "Physics"],
+    "Earth Sciences-Physics": ["Earth Sciences", "Physics"],
+    "Environmental Sciences": ["Environmental Sciences"],
+}
+# A line of program text that names our courses only to rule them out, as in
+# "Credit is not given toward the BCS degree for ... MATH 1843" or "Service
+# courses ... are not acceptable for BBA credit: STAT 2263 ...", does not count.
+RULED_OUT = re.compile(r"not (?:be )?given|not acceptab|cannot receive credit|will not be approved",
+                       re.I)
+# Another unit's course counts only when ours is its prerequisite or
+# co-requisite, not when the entry merely excludes or recommends ours.
+COURSE_ROLES = {"prerequisite", "co-requisite"}
+SUBJECT_UNITS = {
+    "ADM": "Management",
+    "APSC": "Engineering", "CE": "Engineering", "CHE": "Engineering", "ECE": "Engineering",
+    "ENGG": "Engineering", "GGE": "Engineering", "ME": "Engineering", "SWE": "Engineering",
+    "BIOL": "Biology", "CHEM": "Chemistry", "CS": "CS", "ECON": "Economics",
+    "ESCI": "Earth Sciences", "KIN": "Kinesiology", "NURS": "Nursing", "PHYS": "Physics",
+    "ENVM": "Forestry and EM", "FOR": "Forestry and EM",
+}
+
+
+def latest_sweep(calendar_dir):
+    """The newest calendar-year folder that holds sweep_references.py's output."""
+    found = sorted(p.parent for p in Path(calendar_dir).glob("*/sweep-programs.tsv"))
+    return found[-1] if found else None
+
+
+def program_units(page, section):
+    """The units a program page (and section heading) belongs to; [] if it does not count."""
+    if page.endswith("interdepartmentalprograms"):
+        # 'Interdepartmental programs > Biology-Physics > Requirements ...'
+        parts = [part.strip() for part in section.split(">")]
+        program = parts[1] if len(parts) > 1 else ""
+        return INTERDEPARTMENTAL_UNITS.get(program, [])
+    for text, unit in PAGE_UNITS:
+        if text in page:
+            return [unit] if unit else []
+    return [None]  # a page no rule knows: reported, so a rule can be added
+
+
+def required_by_others(sweep_dir):
+    """{course key: 'Biology, Physics, ...'} from one year's sweep, and the pages no rule knew."""
+    units = defaultdict(set)
+    unknown = set()
+    with open(sweep_dir / "sweep-programs.tsv", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            if RULED_OUT.search(row["Text"]):
+                continue
+            for unit in program_units(row["Program page"], row["Section"]):
+                if unit is None:
+                    unknown.add(row["Program page"])
+                else:
+                    units[course_key(row["Cited course"])].add(unit)
+    with open(sweep_dir / "sweep-courses.tsv", newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            if row["Role"] in COURSE_ROLES:
+                subject = row["Their course"].split()[0]
+                units[course_key(row["Cited course"])].add(SUBJECT_UNITS.get(subject, subject))
+    return {key: ", ".join(sorted(names)) for key, names in units.items()}, sorted(unknown)
+
+
+# ----------------------------------------------------------------------------
 # Writing the workbook
 # ----------------------------------------------------------------------------
 # (heading, width, group). The group decides the header colour, and "hand"
@@ -655,7 +764,7 @@ MAIN_COLUMNS = [
     ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"),
     ("Winter offering note", 24, "winter"), ("Winter enrol", 9, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
-    ("Status", 10, "hand"), ("Required by others", 11, "hand"), ("Cross-listed", 16, "hand"),
+    ("Status", 10, "hand"), ("Required by others", 22, "other"), ("Cross-listed", 16, "hand"),
     ("Instructor note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
 ]
 # The removed sheet is a record, not a planning tool, so it has none of MAIN's
@@ -674,6 +783,9 @@ FILLS = {
 HEADER_NOTES = {
     "Fall enrol": "Median of the last 3 offerings.",
     "Winter enrol": "Median of the last 3 offerings.",
+    "Required by others": "Units whose calendar text names this course in a program, or as a "
+                          "prerequisite or co-requisite. Whether it is required, one of a list or "
+                          "an option: see curriculum/COURSES-required-by-other-units.md.",
 }
 
 # Each sheet is declared as an Excel table. None means no table style, so the
@@ -764,9 +876,8 @@ def write_table(sheet, columns, rows, freeze):
     declare_table(sheet)
 
 
-def main_row(key, hand, offerings, windows, covered, latest_term, today):
+def main_row(key, hand, offerings, windows, covered, latest_term, today, required):
     """One row of MAIN (or of removed): generated cells around the typed ones."""
-    reqd = hand.get("reqd", "")
     return (
         [course_display(key), hand.get("title", ""), hand.get("ch", ""), hand.get("format", ""),
          hand.get("other", "")]
@@ -774,8 +885,7 @@ def main_row(key, hand, offerings, windows, covered, latest_term, today):
         + season_columns(offerings, "WI", windows["WI"], today)
         + [summer_text(offerings, covered), online_text(offerings, latest_term),
            instructors_text(offerings, today)]
-        # The old workbook marked "required by others" with a 1.
-        + [hand.get("status", ""), "yes" if reqd == "1" else reqd, hand.get("cross", ""),
+        + [hand.get("status", ""), required, hand.get("cross", ""),
            hand.get("staffing", ""), hand.get("notes", ""), hand.get("check", "")]
     )
 
@@ -869,6 +979,8 @@ def main():
                         help="directory of course-summary exports")
     parser.add_argument("--years", type=int, default=6,
                         help="years the fall/winter pattern looks back (default 6)")
+    parser.add_argument("--sweep",
+                        help="calendar-year folder holding the sweep output (default: the newest)")
     args = parser.parse_args()
 
     output = Path(args.output).expanduser()
@@ -884,6 +996,19 @@ def main():
     timetable, covered, tt_files = load_timetables(args.timetable or DEFAULT_TIMETABLES)
     summaries, summary_terms, sum_files = load_summaries(args.summaries)
     main_hand, removed_hand, first_conversion = read_previous(previous)
+
+    # "Required by others" used to be typed. It is generated now, so anything
+    # typed there other than a plain yes is moved to Check, not lost.
+    for hand in main_hand.values():
+        typed = hand.pop("reqd", "").strip()
+        if typed.lower() not in ("", "1", "yes"):
+            note = f"Was typed in Required by others: {typed}"
+            hand["check"] = f"{hand['check']}; {note}" if hand.get("check") else note
+    sweep_dir = Path(args.sweep).expanduser() if args.sweep else latest_sweep(CALENDAR_DIR)
+    if sweep_dir:
+        required, unknown_pages = required_by_others(sweep_dir)
+    else:
+        required, unknown_pages = {}, []
 
     if first_conversion:
         for key, text in SEED_STAFFING.items():
@@ -958,9 +1083,19 @@ def main():
     sheet = workbook.active
     sheet.title = "MAIN"
     main_keys = sorted(main_hand, key=sort_key)
+
+    def required_cell(key):
+        """Units naming this course under its own number or any of its other numbers."""
+        names = set()
+        for number in [key] + aliases.get(key, []):
+            if number in required:
+                names.update(required[number].split(", "))
+        return ", ".join(sorted(names))
+
     write_table(
         sheet, MAIN_COLUMNS,
-        [main_row(k, main_hand[k], offerings.get(k, {}), windows, covered, latest_term, today)
+        [main_row(k, main_hand[k], offerings.get(k, {}), windows, covered, latest_term, today,
+                  required_cell(k))
          for k in main_keys],
         freeze="C2",
     )
@@ -1049,6 +1184,11 @@ def main():
                    "fall, winter or summer offering."),
         ("Status", "Rows marked hiatus or inactive are coloured automatically; the colour "
                    "follows whatever is typed in the Status cell."),
+        ("Required by others", f"From the calendar sweep in {sweep_dir.name if sweep_dir else '(none found)'}: "
+                               "the units whose calendar text names the course in a program, or as a "
+                               "prerequisite or co-requisite of their own course. Our own programs, and "
+                               "lines that say a course is NOT accepted for credit, do not count. For which program "
+                               "and in what role, see curriculum/COURSES-required-by-other-units.md."),
         ("removed", "Courses taken out of the calendar. 'Last calendar' is the last calendar year "
                     "with an entry for the course; 'Reason' is why it went, quoted from the "
                     "department's submission where one was found. 'Last taught' is generated: the "
@@ -1078,6 +1218,13 @@ def main():
         print(f"  The copy it replaced was kept as {backup}")
     print(f"  MAIN: {len(main_keys)} courses ({len(new_courses)} new), removed: {len(removed_keys)}")
     print(f"  History: {term_label(all_terms[0])} to {term_label(all_terms[-1])}, {len(all_terms)} terms")
+    if sweep_dir:
+        print(f"  Required by others: from the {sweep_dir.name} calendar sweep")
+    else:
+        print(f"  Required by others: left blank, no sweep found under {CALENDAR_DIR}")
+    if unknown_pages:
+        print("  Program pages with no unit in PAGE_UNITS (add a rule for each):")
+        print("    " + ", ".join(unknown_pages))
     if new_courses:
         print("  New courses, flagged in the Check column:")
         print("    " + ", ".join(course_display(k) for k in new_courses))

@@ -22,6 +22,7 @@ uv run --script ~/3work/course-scripts/build_courses.py && uv run --script ~/3wo
 - Columns with yellow headers are typed by a person and carried across every rebuild; everything else is regenerated.
 - Both scripts refuse to run while their workbook is open in Excel.
 - Each rebuild keeps a dated copy of the workbook it replaced in a `zzzzz` folder beside it.
+- The master list's `Required by others` column is generated from the newest calendar sweep (see below): the units whose calendar text names the course. If the build lists a program page with no unit, add a rule for it to `PAGE_UNITS` in `build_courses.py`.
 - A course on the master list's `removed` sheet gets no row in the advising timetable, even if a degree-requirements workbook still names it; the build prints which workbook that is.
 - If the advising build fails with "Operation timed out" and "File is not a zip file", OneDrive was still syncing the workbook after a recent write. Wait a minute and run it again.
 
