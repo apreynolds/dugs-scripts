@@ -96,22 +96,6 @@ SUBJECTS = ["MATH", "STAT", "DATA"]
 # for "nothing but that one section ran".
 MIN_ROWS_FOR_COVERAGE = 100
 
-# Staffing notes seeded the first time the old-layout workbook is converted.
-# After that the column is Patrick's, and these are never applied again.
-SEED_STAFFING = {
-    "MATH3373": "Instructor assigned by Economics",
-    "MATH4100": "Not counted toward course assignment (instructor in name only)",
-}
-
-# Numbers the registrar uses for a course that the list knows by another
-# name. Seeded once, then kept in the "Other numbers" column.
-SEED_OTHER_NUMBERS = {
-    "DATA1001": "STAT 1001",
-}
-SEED_CHECK = {
-    "DATA1001": "Informer lists this as STAT 1001 'Data Science' - confirm they are the same course",
-}
-
 SEASON_ORDER = {"WI": 0, "SM": 1, "FA": 2}
 SEASON_LETTER = {"WI": "W", "SM": "S", "FA": "F"}
 
@@ -436,7 +420,6 @@ HEADINGS = {
     "format": ["Format", "FORMAT"],
     "other": ["Other numbers"],
     "status": ["Status", "STATUS"],
-    "reqd": ["Required by others", "REQD by OTHERS"],
     "cross": ["Cross-listed", "Cross listed"],
     "staffing": ["Instructor note", "Staffing note"],
     "notes": ["Notes", "MY NOTES", "my NOTES"],
@@ -482,8 +465,7 @@ def read_sheet_fields(sheet):
 def read_previous(path):
     """Read the hand-kept fields from the previous workbook.
 
-    Returns (main, removed, first_conversion). first_conversion is True when
-    the workbook is in the old layout, which is when the seeds above apply.
+    Returns (main, removed): {course: {field: text}} for MAIN and removed.
     """
     # data_only=True returns the values Excel last calculated, not formulas.
     workbook = load_workbook(path, data_only=True)
@@ -500,8 +482,7 @@ def read_previous(path):
                 for field in ("description", "prereq", "calnotes"):
                     if field in record:
                         target[field] = record[field]
-    first_conversion = "staffing" not in fields
-    return main, removed, first_conversion
+    return main, removed
 
 
 # ----------------------------------------------------------------------------
@@ -764,8 +745,8 @@ MAIN_COLUMNS = [
     ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"),
     ("Winter offering note", 24, "winter"), ("Winter enrol", 9, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
-    ("Status", 10, "hand"), ("Required by others", 22, "other"), ("Cross-listed", 16, "hand"),
-    ("Instructor note", 26, "hand"), ("Notes", 44, "hand"), ("Check", 30, "hand"),
+    ("Status", 10, "hand"), ("Required by others", 48, "other"), ("Cross-listed", 16, "hand"),
+    ("Notes", 44, "hand"),
 ]
 # The removed sheet is a record, not a planning tool, so it has none of MAIN's
 # timetable columns. Only "Last taught" is generated; the rest is typed.
@@ -885,8 +866,7 @@ def main_row(key, hand, offerings, windows, covered, latest_term, today, require
         + season_columns(offerings, "WI", windows["WI"], today)
         + [summer_text(offerings, covered), online_text(offerings, latest_term),
            instructors_text(offerings, today)]
-        + [hand.get("status", ""), required, hand.get("cross", ""),
-           hand.get("staffing", ""), hand.get("notes", ""), hand.get("check", "")]
+        + [hand.get("status", ""), required, hand.get("cross", ""), hand.get("notes", "")]
     )
 
 
@@ -995,29 +975,25 @@ def main():
     today = datetime.date.today().isoformat()
     timetable, covered, tt_files = load_timetables(args.timetable or DEFAULT_TIMETABLES)
     summaries, summary_terms, sum_files = load_summaries(args.summaries)
-    main_hand, removed_hand, first_conversion = read_previous(previous)
+    main_hand, removed_hand = read_previous(previous)
 
-    # "Required by others" used to be typed. It is generated now, so anything
-    # typed there other than a plain yes is moved to Check, not lost.
+    # "Instructor note" and "Check" were dropped on 2026-10-14. A workbook
+    # that still has them keeps their text by folding it into Notes; the
+    # automatic "NEW: ..." flags in Check are simply dropped.
     for hand in main_hand.values():
-        typed = hand.pop("reqd", "").strip()
-        if typed.lower() not in ("", "1", "yes"):
-            note = f"Was typed in Required by others: {typed}"
-            hand["check"] = f"{hand['check']}; {note}" if hand.get("check") else note
+        extra = [hand.pop("staffing", "")]
+        check = hand.pop("check", "")
+        if not check.startswith("NEW:"):
+            extra.append(check)
+        for text in extra:
+            if text and text not in hand.get("notes", ""):
+                hand["notes"] = f"{hand['notes']}; {text}" if hand.get("notes") else text
+
     sweep_dir = Path(args.sweep).expanduser() if args.sweep else latest_sweep(CALENDAR_DIR)
     if sweep_dir:
         required, unknown_pages = required_by_others(sweep_dir)
     else:
         required, unknown_pages = {}, []
-
-    if first_conversion:
-        for key, text in SEED_STAFFING.items():
-            if key in main_hand:
-                main_hand[key].setdefault("staffing", text)
-        for key, text in SEED_OTHER_NUMBERS.items():
-            if key in main_hand:
-                main_hand[key].setdefault("other", text)
-                main_hand[key].setdefault("check", SEED_CHECK.get(key, ""))
 
     # Other numbers a course is filed under (typed in "Other numbers").
     aliases = {
@@ -1047,7 +1023,8 @@ def main():
         main_hand[key] = {
             "title": title,
             "ch": str(int(float(hours))) if hours else "",
-            "check": "NEW: has sections in Informer but was not in the previous list",
+            "notes": f"Added by build_courses.py on {today}: it has sections in Informer "
+                     "but was not on the list. Delete this note once checked.",
         }
         new_courses.append(key)
 
@@ -1226,7 +1203,7 @@ def main():
         print("  Program pages with no unit in PAGE_UNITS (add a rule for each):")
         print("    " + ", ".join(unknown_pages))
     if new_courses:
-        print("  New courses, flagged in the Check column:")
+        print("  New courses, flagged in the Notes column:")
         print("    " + ", ".join(course_display(k) for k in new_courses))
     guessed = [course_display(k) for k in sorted(inferred, key=sort_key) if k in everything]
     if guessed:
