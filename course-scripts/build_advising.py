@@ -84,8 +84,8 @@ CODE = re.compile(r"\b([A-Z]{2,4})\s?(\d{4})\b")
 # (heading, width, group); "hand" marks the typed columns, as in build_courses.
 COLUMNS = [
     ("Course", 11, "hand"), ("Title", 34, "id"), ("CH", 5, "id"),
-    ("Fall timeslot", 38, "fall"), ("Fall offering note", 22, "fall"),
-    ("Winter timeslot", 38, "winter"), ("Winter offering note", 22, "winter"),
+    ("Offering note", 28, "other"),
+    ("Fall timeslot", 38, "fall"), ("Winter timeslot", 38, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"),
     ("Programs", 26, "other"), ("Listed because", 14, "other"),
     ("Status", 10, "other"), ("Curriculum note", 36, "other"),
@@ -160,9 +160,9 @@ def read_requirements(folder):
     return programs
 
 
-def advising_season(per, season, window, today):
-    """(timeslot, offering note) for one course in fall or winter."""
-    slot, _, offered, _ = bc.season_columns(per, season, window, today)
+def advising_slot(per, season, window, today):
+    """The timeslot for one course in fall or winter."""
+    slot, _, _ = bc.season_columns(per, season, window, today)
     if slot == "(no set time)":
         # A lab course has no lecture, so every section is one of its lab
         # times. Show those, from the most recent term that has any.
@@ -171,7 +171,7 @@ def advising_season(per, season, window, today):
         if with_labs:
             slot = "lab/tut: " + " / ".join(per[with_labs[-1]]["tutorial_slots"])
     # Outside MATH/STAT the extra meeting is as often a lab as a tutorial.
-    return slot.replace(" + tut ", " + lab/tut "), offered
+    return slot.replace(" + tut ", " + lab/tut ")
 
 
 def main():
@@ -261,6 +261,7 @@ def main():
     offerings = bc.build_offerings(timetable, covered, {}, [], counted, {})
     terms = sorted(covered, key=bc.term_key)
     windows = {s: [t for t in terms if t.endswith(s)][-args.years:] for s in ("FA", "WI")}
+    years = bc.complete_years(terms, args.years)
 
     # The latest title and credit hours the registrar has for each number, and
     # which numbers have shared a title (how a renumbering shows up).
@@ -285,8 +286,8 @@ def main():
             # twins and pre-2017 history, and the two files must agree.
             m = master[key]
             rows.append([bc.course_display(key), m.get("Title", ""), m.get("CH", ""),
-                         m.get("Fall timeslot", ""), m.get("Fall offering note", ""),
-                         m.get("Winter timeslot", ""), m.get("Winter offering note", ""),
+                         m.get("Offering note", ""),
+                         m.get("Fall timeslot", ""), m.get("Winter timeslot", ""),
                          m.get("Summer (in person)", ""), m.get("Online", ""),
                          where, why,
                          m.get("Status", ""), m.get("Notes", "")] + tail)
@@ -295,19 +296,19 @@ def main():
         if not per:
             missing.append(key)
             rows.append([bc.course_display(key), "", "", "(not in the timetable since 2017)",
-                         "", "", "", "", "", where, why, "", ""] + tail)
+                         "", "", "", "", where, why, "", ""] + tail)
             continue
         # A course that has not yet run under its new number borrows the old one's title.
         title, hours = facts.get(key) or facts.get((aliases.get(key) or [""])[0], ("", ""))
-        fall_slot, fall_note = advising_season(per, "FA", windows["FA"], today)
-        winter_slot, winter_note = advising_season(per, "WI", windows["WI"], today)
+        fall_slot = advising_slot(per, "FA", windows["FA"], today)
+        winter_slot = advising_slot(per, "WI", windows["WI"], today)
         # Another number with the same title usually means a renumbering that
         # "Other numbers" does not know about yet. Reported when the run ends.
         others = sorted(same_title.get((key[:-4], title.lower()), set()) - {key} - set(aliases.get(key, [])))
         if others:
             suggestions.append((key, others))
         rows.append([bc.course_display(key), title, str(int(float(hours))) if hours else "",
-                     fall_slot, fall_note, winter_slot, winter_note,
+                     bc.offering_note(per, years), fall_slot, winter_slot,
                      bc.summer_text(per, covered), bc.online_text(per, terms[-1]),
                      where, why, "", ""] + tail)
 
@@ -334,8 +335,9 @@ def main():
                      "separates lectures at different times; '+ lab/tut' lists the lab or tutorial "
                      "options. '-' means never offered in that season. '(new 2026 F)' means the "
                      "slot changed that term, so it is not yet one to rely on."),
-        ("Offering note", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or "
-                          "winters. Otherwise it says how regular the course is, and when it last ran."),
+        ("Offering note", f"BLANK MEANS EVERY YEAR IN THE SAME TERM, judged over the last "
+                          f"{args.years} academic years, fall and winter together. Otherwise it says "
+                          "how regular the course is, which term it moves to, or when it last ran."),
         ("Summer, Online", "Summer means in person. Online is never counted as a term offering."),
         ("Programs", "The degree-requirements workbooks that mention the course."),
         ("Listed because", "Why the row is here: it is on the master list, a requirements workbook "

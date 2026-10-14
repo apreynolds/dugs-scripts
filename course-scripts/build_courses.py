@@ -23,7 +23,7 @@
 #                     of them; repeat the flag for several. One row per section
 #   -s, --summaries   directory of Informer "Course Summary" exports, one CSV
 #                     per term
-#       --years N     how many years the fall/winter "pattern" looks back
+#       --years N     how many academic years the offering note looks back
 #                     (default 6)
 #       --sweep DIR   calendar-year folder holding sweep_references.py's
 #                     output (default: the newest one that has it)
@@ -515,45 +515,101 @@ def sections_text(offering):
     return str(offering["lectures"])
 
 
-def offered_text(ran_terms, window, last_label):
-    """Say how regularly a course runs in one season. Blank means every year.
+def academic_year(term):
+    """'2025/FA' and '2026/WI' both belong to the academic year 2025 (2025-26)."""
+    year = int(term[:4])
+    return year if term.endswith("FA") else year - 1
 
-    ran_terms is every term of that season the course was taught, oldest
-    first. window is the terms to judge by, oldest first, e.g. the last six
-    falls. last_label names the most recent term taught.
+
+def year_label(year):
+    """2025 -> '2025-26'."""
+    return f"{year}-{(year + 1) % 100:02d}"
+
+
+def complete_years(terms, count):
+    """The last `count` academic years whose fall AND winter are both in `terms`.
+
+    A year whose winter is not in the data yet is left out, or a course that
+    runs every winter would look as if it had skipped that year.
+    """
+    present = set(terms)
+    years = sorted({academic_year(t) for t in present if t.endswith("FA")
+                    and f"{academic_year(t) + 1}/WI" in present})
+    return years[-count:]
+
+
+def season_letters(letters):
+    """{'FA', 'WI'} -> 'F and W'; {'WI'} -> 'W'."""
+    return " and ".join(SEASON_LETTER[s] for s in ("FA", "WI") if s in letters)
+
+
+def offering_note(offerings, window):
+    """Say in one cell how regularly, and in which term, a course runs.
+
+    window is the academic years to judge by, oldest first (see
+    complete_years). Fall and winter are taken together: a course counts as
+    offered in 2025-26 if it was taught in Fall 2025 or Winter 2026.
+
+    Blank means every year, always in the same term (or terms). Otherwise:
+      'every year, F or W'          every year, but the term moves about
+      'every year; W since 2025-26' every year, and moved term recently
+      'every year since 2024-25'    an unbroken recent run
+      'alternate years; last 2027 W'
+      '3 of last 6 years; last 2025 F'
+      'not since 2016 W'            skipped the last two years running
+      '-'                           never taught in a fall or winter
 
     The wording describes the current RUN rather than counting, so that a
-    deliberate change shows up quickly. A course moved from winter to fall
-    reads "every year since 2027 F" after two falls, and its winter reads
-    "not since 2027 W" after two winters; a plain count would take six years
-    to say either.
+    deliberate change shows up after two years rather than six.
     """
-    flags = [t in ran_terms for t in window]
-    if all(flags):
-        return ""  # the unremarkable case, left blank on purpose
-    if not any(flags) or not any(flags[-2:]):
-        # Never in the window, or skipped the last two years running.
-        return f"not since {last_label}"
-    # How many of the most recent terms in a row was it taught?
+    ran = sorted((t for t, o in offerings.items()
+                  if not t.endswith("SM") and ran_in_class(o)), key=term_key)
+    if not ran:
+        return "-"
+    last = ran[-1]
+    label = term_label(last) + (" (grad only)" if not offerings[last]["inperson"] else "")
+    # For each academic year, the seasons the course was taught in.
+    seasons = defaultdict(set)
+    for term in ran:
+        seasons[academic_year(term)].add(term[5:])
+    flags = [year in seasons for year in window]
+
+    # How many of the most recent years in a row was it taught?
     run = 0
     for flag in reversed(flags):
         if not flag:
             break
         run += 1
+
+    if all(flags):
+        patterns = [frozenset(seasons[year]) for year in window]
+        if len(set(patterns)) == 1:
+            return ""  # the unremarkable case, left blank on purpose
+        # The same term(s) for the last few years running: a move.
+        same = 0
+        for pattern in reversed(patterns):
+            if pattern != patterns[-1]:
+                break
+            same += 1
+        if same >= 2:
+            return f"every year; {season_letters(patterns[-1])} since {year_label(window[-same])}"
+        return "every year, F or W"
+    if not any(flags) or not any(flags[-2:]):
+        # Never in the window, or skipped the last two years running.
+        return f"not since {label}"
     if run >= 2:
-        return f"every year since {term_label(window[-run])}"
+        return f"every year since {year_label(window[-run])}"
     alternating = all(a != b for a, b in zip(flags, flags[1:]))
     if alternating and len(window) >= 4:
-        return f"alternate years; last {last_label}"
-    return f"{sum(flags)} of last {len(window)}; last {last_label}"
+        return f"alternate years; last {label}"
+    return f"{sum(flags)} of last {len(window)} years; last {label}"
 
 
 def season_columns(offerings, season, window, today):
-    """The four generated cells for fall or for winter."""
+    """The three generated cells for fall or for winter: slot, sections, enrolment."""
     ran = season_terms(offerings, season, ran_in_class)
     if not ran:
-        return ["-", "", "-", ""]
-    last = ran[-1]
+        return ["-", "", ""]
     in_person = season_terms(offerings, season, lambda o: o["inperson"])
     # The slot comes from the most recent term we have meeting times for.
     timed = [t for t in in_person if offerings[t]["source"] == "timetable"]
@@ -584,8 +640,7 @@ def season_columns(offerings, season, window, today):
     started = [t for t in in_person if not offerings[t]["start"] or offerings[t]["start"] <= today]
     sizes = [offerings[t]["enrolment"] for t in started[-3:]]
     enrolment = round(statistics.median(sizes)) if sizes else ""
-    label = term_label(last) + (" (grad only)" if not offerings[last]["inperson"] else "")
-    return [slot, sections, offered_text(ran, window, label), enrolment]
+    return [slot, sections, enrolment]
 
 
 def summer_text(offerings, covered):
@@ -740,10 +795,9 @@ def required_by_others(sweep_dir):
 MAIN_COLUMNS = [
     ("Course", 11, "id"), ("Title", 34, "id"), ("CH", 5, "id"), ("Format", 11, "id"),
     ("Other numbers", 13, "hand"),
-    ("Fall timeslot", 34, "fall"), ("Fall sections", 12, "fall"),
-    ("Fall offering note", 24, "fall"), ("Fall enrol", 9, "fall"),
-    ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"),
-    ("Winter offering note", 24, "winter"), ("Winter enrol", 9, "winter"),
+    ("Offering note", 30, "other"),
+    ("Fall timeslot", 34, "fall"), ("Fall sections", 12, "fall"), ("Fall enrol", 9, "fall"),
+    ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"), ("Winter enrol", 9, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
     ("Status", 10, "hand"), ("Required by others", 48, "other"), ("Cross-listed", 16, "hand"),
     ("Notes", 44, "hand"),
@@ -857,11 +911,11 @@ def write_table(sheet, columns, rows, freeze):
     declare_table(sheet)
 
 
-def main_row(key, hand, offerings, windows, covered, latest_term, today, required):
+def main_row(key, hand, offerings, windows, years, covered, latest_term, today, required):
     """One row of MAIN (or of removed): generated cells around the typed ones."""
     return (
         [course_display(key), hand.get("title", ""), hand.get("ch", ""), hand.get("format", ""),
-         hand.get("other", "")]
+         hand.get("other", ""), offering_note(offerings, years)]
         + season_columns(offerings, "FA", windows["FA"], today)
         + season_columns(offerings, "WI", windows["WI"], today)
         + [summer_text(offerings, covered), online_text(offerings, latest_term),
@@ -958,7 +1012,7 @@ def main():
     parser.add_argument("-s", "--summaries", default=DEFAULT_SUMMARIES,
                         help="directory of course-summary exports")
     parser.add_argument("--years", type=int, default=6,
-                        help="years the fall/winter pattern looks back (default 6)")
+                        help="academic years the offering note looks back (default 6)")
     parser.add_argument("--sweep",
                         help="calendar-year folder holding the sweep output (default: the newest)")
     args = parser.parse_args()
@@ -1046,9 +1100,11 @@ def main():
 
     offerings = build_offerings(timetable, covered, summaries, summary_terms, aliases, twins)
 
-    # The terms the pattern columns judge by: the last N falls and winters.
+    # The offering note judges by the last N academic years; the timeslot's
+    # "(new ...)" tag still looks at the last falls or winters on their own.
     all_terms = sorted({t for per in offerings.values() for t in per}, key=term_key)
     latest_term = all_terms[-1]
+    years = complete_years(all_terms, args.years)
     windows = {}
     for season in ("FA", "WI"):
         seasonal = [t for t in all_terms if t.endswith(season)]
@@ -1071,7 +1127,7 @@ def main():
 
     write_table(
         sheet, MAIN_COLUMNS,
-        [main_row(k, main_hand[k], offerings.get(k, {}), windows, covered, latest_term, today,
+        [main_row(k, main_hand[k], offerings.get(k, {}), windows, years, covered, latest_term, today,
                   required_cell(k))
          for k in main_keys],
         freeze="C2",
@@ -1150,11 +1206,13 @@ def main():
                  "changed that term, so it is not yet one to rely on."),
         ("Sections", "Lectures at the most recent offering. '4 lec, 24 tut' when students register "
                      "in tutorial groups that outnumber the lectures."),
-        ("Offering note", f"BLANK MEANS EVERY YEAR, judged over the last {args.years} falls or winters. "
-                    "Otherwise: 'every year since ...' for a recent unbroken run, 'not since ...' "
-                    "once two years running are skipped, or a pattern with the last term taught. "
-                    "'(grad only)' means it ran under its graduate number with no undergraduate "
-                    "section."),
+        ("Offering note", f"BLANK MEANS EVERY YEAR IN THE SAME TERM, judged over the academic years "
+                          f"{year_label(years[0])} to {year_label(years[-1])}; fall and winter count "
+                          "together. Otherwise: 'every year, F or W' when the term moves about, "
+                          "'every year; W since ...' after a move, 'every year since ...' for a recent "
+                          "unbroken run, 'not since ...' once two years running are skipped, or a "
+                          "pattern with the last term taught. '(grad only)' means it ran under its "
+                          "graduate number with no undergraduate section."),
         ("Enrol", "Median total registration over the last three offerings that have started."),
         ("Summer (in person)", "Online sections do not count. Summers are covered from 2017."),
         ("Online", "'yes' if offered online in the last two years. Online is never counted as a "
