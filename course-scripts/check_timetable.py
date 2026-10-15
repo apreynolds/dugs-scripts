@@ -98,6 +98,19 @@ SHEET_CLASHES = "Check - clashes"
 SHEET_ALTERNATIVES = "Check - alternatives"
 SHEET_ABOUT = "Check - about"
 
+# Courses a requirements workbook lists beside the course they stand in for,
+# {substitute: usual course}. Taken from the workbooks' own Description and
+# Note cells ("MATH 1053/1063 accepted in place of 1003/1013", "PHYS 1082 may
+# replace PHYS 1052", "Or ECON 1014/1024", "Or MATH 3503"). Without this a
+# category like Calc looks like "any two of four", and its usual courses read
+# as options rather than requirements.
+SUBSTITUTES = {
+    "MATH1053": "MATH1003", "MATH1063": "MATH1013",
+    "PHYS1082": "PHYS1052",
+    "ECON1014": "ECON1013", "ECON1024": "ECON1023",
+    "MATH3503": "MATH3043",
+}
+
 # Worst first.
 SEVERITY = ["Both required", "Required + option", "Both options", "Elective", "Ours only"]
 ROLE_RANK = {"required": 3, "option": 2, "elective": 1}
@@ -272,6 +285,11 @@ def read_programs(folder, aliases, live, hours_of):
             patterns = [re.compile(subject + number.replace("*", r"\d"))
                         for subject, number in WILDCARD.findall(text) if "*" in number]
             current = [c for c in exact if c in live]
+            # A substitute listed beside its usual course is left out of the
+            # sum, so "MATH 1003; MATH 1053; MATH 1013; MATH 1063" for 6 ch
+            # reads as MATH 1003 and 1013 required, not "two of four".
+            subs = [c for c in current if SUBSTITUTES.get(c) in current]
+            main_courses = [c for c in current if c not in subs]
             for track in tracks:
                 try:
                     hours = float(record.get(track) or 0)
@@ -280,12 +298,14 @@ def read_programs(folder, aliases, live, hours_of):
                 if hours <= 0:
                     continue
                 entry = program["tracks"][track]
-                if current:
-                    total = sum(hours_of.get(c, 3.0) for c in current)
+                if main_courses:
+                    total = sum(hours_of.get(c, 3.0) for c in main_courses)
                     role = "required" if total <= hours + 0.01 else "option"
-                    need = max(1, round(hours / (total / len(current))))
-                    for course in current:
+                    need = max(1, round(hours / (total / len(main_courses))))
+                    for course in main_courses:
                         entry["exact"][course].append((role, category, need))
+                    for course in subs:
+                        entry["exact"][course].append(("option", category, 1))
                 for pattern in patterns:
                     entry["wild"].append((pattern, category))
         programs.append(program)
@@ -664,8 +684,9 @@ def about_sheet(sheet, today, args, tt_files, terms, programs):
         ("", "Prerequisites are not used, so a pair one cannot take together anyway still shows."),
         ("", "Categories that name no courses (first-year science, breadth, Arts electives) are not "
              "read, and nor are the Note columns ('MATH 2513 can count for MATH 2003')."),
-        ("", "A category that accepts an alternative (PHYS 1082 for PHYS 1052) makes all its "
-             "courses options, so some first-year requirements are graded too softly."),
+        ("", "Substitutes listed beside the usual course (MATH 1053 for MATH 1003, PHYS 1082 for "
+             "PHYS 1052) are a short list in the script, SUBSTITUTES; a new one must be added there, "
+             "or its category reads as a choice."),
         ("", "No program file covers a student combining Mathematics with Computer Science."),
         ("", "A course with two sections clashes only if both sections do."),
     ]
