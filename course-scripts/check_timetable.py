@@ -292,6 +292,34 @@ def read_programs(folder, aliases, live, hours_of):
     return programs
 
 
+def load_programs(requirements, advising, timetables, extra_live=()):
+    """Read everything a program check needs.
+
+    Returns (programs, offerings, covered terms in order, timetable files,
+    the set of courses still offered).
+    extra_live: courses to treat as still offered whatever the exports say,
+    such as everything on the proposed timetable.
+    """
+    aliases = read_aliases(Path(advising).expanduser())
+    counted = defaultdict(list)
+    for other, key in aliases.items():
+        counted[key].append(other)
+    timetable, covered, tt_files = bc.load_timetables(timetables, subjects=None)
+    offerings = bc.build_offerings(timetable, covered, {}, [], counted, {})
+    terms = sorted(covered, key=bc.term_key)
+    # Still offered: any section, in any mode, in the last LIVE_YEARS years.
+    recent = set(terms[-3 * LIVE_YEARS:])
+    live = {c for c, per in offerings.items() if recent & set(per)} | set(extra_live)
+    hours_of = {}
+    for (course, term), rows in sorted(timetable.items(), key=lambda kv: bc.term_key(kv[0][1])):
+        try:
+            hours_of[aliases.get(course, course)] = float(rows[0]["Credit Hours"])
+        except ValueError:
+            pass
+    programs = read_programs(requirements, aliases, live, hours_of)
+    return programs, offerings, terms, tt_files, live
+
+
 def role_in(track_entry, course):
     """The strongest role a course has on one track: (role, category, need), or None."""
     named = track_entry["exact"].get(course)
@@ -445,26 +473,11 @@ def main():
 
     # ---- The data -----------------------------------------------------------
     proposal = read_proposal(workbook_path)
-    aliases = read_aliases(Path(args.advising).expanduser())
-    counted = defaultdict(list)
-    for other, key in aliases.items():
-        counted[key].append(other)
-    timetable, covered, tt_files = bc.load_timetables(args.timetable or bc.DEFAULT_TIMETABLES, subjects=None)
-    offerings = bc.build_offerings(timetable, covered, {}, [], counted, {})
-    terms = sorted(covered, key=bc.term_key)
-
-    # Still offered: any section, in any mode, in the last LIVE_YEARS years.
-    recent = set(terms[-3 * LIVE_YEARS:])
-    live = {c for c, per in offerings.items() if recent & set(per)}
+    extra = set()
     for _, _, courses in proposal:
-        live |= set(courses)
-    hours_of = {}
-    for (course, term), rows in sorted(timetable.items(), key=lambda kv: bc.term_key(kv[0][1])):
-        try:
-            hours_of[aliases.get(course, course)] = float(rows[0]["Credit Hours"])
-        except ValueError:
-            pass
-    programs = read_programs(args.requirements, aliases, live, hours_of)
+        extra |= set(courses)
+    programs, offerings, terms, tt_files, live = load_programs(
+        args.requirements, args.advising, args.timetable or bc.DEFAULT_TIMETABLES, extra)
     named = set()
     for program in programs:
         for entry in program["tracks"].values():
