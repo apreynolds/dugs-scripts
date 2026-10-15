@@ -303,24 +303,31 @@ def tex_brackets(first, span, lines, row_height):
     middle = f"{span * row_height / 2:.2f}mm+{(span * extra_pt - 2) / 2:.2f}pt"
     draw = []
     for i, (_, _, start, end) in enumerate(lines):
-        inset = 1.5 + (i // 2) * 2.5  # mm in from the cell edge
+        inset = 0.5 + (i // 2) * 1.5  # mm in from the cell edge
         tick = 1.2  # mm: the bracket's top and bottom arms
-        y1, y2 = depth(start), depth(end)
+        # The bracket covers the whole slot: a 50-minute class its 60 minutes,
+        # an 80-minute one its 90, so it ends on a half-hour line.
+        slot_end = FIRST_ROW_TIME + -(-(end - FIRST_ROW_TIME) // STEP) * STEP
+        y1, y2 = depth(start), depth(slot_end)
         if i % 2 == 0:  # left: [
             x, arm = f"{inset}mm", f"{inset + tick}mm"
         else:  # right: ]
             x, arm = f"\\cellw-{inset}mm", f"\\cellw-{inset + tick}mm"
-        draw.append(rf"\draw[bracket] ({arm},-{y1}) -- ({x},-{y1}) -- ({x},-{y2}) -- ({arm},-{y2});")
+        # {-(...)}: the minus must cover both parts, mm and pt.
+        draw.append(rf"\draw[bracket] ({arm},{{-({y1})}}) -- ({x},{{-({y1})}}) -- "
+                    rf"({x},{{-({y2})}}) -- ({arm},{{-({y2})}});")
     text = r"\vspace{3pt}".join(course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
                                 for course, small, _, _ in lines)
     # The text goes in a centred minipage, so it is set exactly as in any
     # other block (same font, same paragraphs), just with room for brackets.
     # \cellw holds the cell's width, taken before the picture starts: inside
     # a TikZ node \linewidth is no longer the cell's.
-    return (r"\setlength{\cellw}{\linewidth}\begin{tikzpicture}"
-            rf"\useasboundingbox (0,0) rectangle (\cellw,-{height});"
+    # baseline at the middle: sat on its bottom edge, the picture would get a
+    # line's depth added below it, and the rows would grow.
+    return (r"\setlength{\cellw}{\linewidth}\begin{tikzpicture}[baseline=(current bounding box.center)]"
+            rf"\useasboundingbox (0,0) rectangle (\cellw,{{-({height})}});"
             + "".join(draw)
-            + rf"\node[inner sep=0pt] at (0.5\cellw,-{middle}) "
+            + rf"\node[inner sep=0pt] at (0.5\cellw,{{-({middle})}}) "
               rf"{{\begin{{minipage}}{{\dimexpr\cellw-9mm\relax}}\centering {text}\end{{minipage}}}};"
             r"\end{tikzpicture}")
 
