@@ -7,6 +7,7 @@
 #   ./timetable_grid.py                     department grid, Fall 2027 -> timetable-grid-fall-2027.pdf
 #   ./timetable_grid.py -s "Winter 2028"    department grid for another term sheet
 #   ./timetable_grid.py --by-level          one PDF per degree program, a page per level per term
+#   ./timetable_grid.py --alternatives      either of those, with every alternative time taken
 #   ./timetable_grid.py -o OUT.tex          write the department grid's LaTeX somewhere else
 #   ./timetable_grid.py --no-pdf            write the .tex only
 #   ./timetable_grid.py -h | --help
@@ -19,6 +20,10 @@
 #       --by-level   instead, draw each degree-requirements workbook's courses,
 #                    a page per level per term sheet, into
 #                    program-grids-by-level/<program>.tex beside the proposed timetable
+#       --alternatives  draw each course that has an Alternative time at that
+#                    time instead of its Suggested one, marked "alternative; was
+#                    ...". Written beside the usual output, with "-alternatives"
+#                    in the name, so the two can be compared
 #       --no-pdf     do not run pr-latexmk afterwards
 #       --no-programs  department grid: leave out the programs under each course
 # Every .tex is overwritten each run: it is output, and nothing in it is typed.
@@ -56,7 +61,7 @@
 #     every 3000/4000-level MATH/STAT course that is not inactive
 #
 # IN BOTH
-#   - Alternative times and tutorials are left out.
+#   - Tutorials are left out, and alternative times unless --alternatives.
 #   - A course whose sections meet at different times appears at each.
 #   - Courses at the same level whose times overlap share one block, which
 #     spans all of them; the times are written out when they differ.
@@ -411,11 +416,26 @@ def compile_pdf(tex, no_pdf):
     print(f"Wrote {tex.with_suffix('.pdf')}")
 
 
+def our_time(record, alternatives):
+    """One of our courses on a term sheet: (time to draw, note).
+
+    With alternatives, a course that has an Alternative time is drawn there,
+    and the note says where it was.
+    """
+    suggested = record.get("Suggested time", "")
+    alternative = record.get("Alternative time", "")
+    if alternatives and ct.parse_options(alternative):
+        return alternative, f"alternative; was {suggested}"
+    return suggested, ""
+
+
 # ----------------------------------------------------------------------------
 # The department grid
 # ----------------------------------------------------------------------------
 def department_grid(args, source, terms):
     slug = re.sub(r"\W+", "-", args.sheet.strip().lower())
+    if args.alternatives:
+        slug += "-alternatives"
     output = Path(args.output).expanduser() if args.output else source.with_name(f"timetable-grid-{slug}.tex")
     if args.sheet not in terms:
         sys.exit(f"No sheet {args.sheet!r} in {source.name}; it has {', '.join(terms)}.")
@@ -427,25 +447,35 @@ def department_grid(args, source, terms):
         others = read_other_units(OTHER_UNITS)
     entries = []
     for key, record in terms[args.sheet].items():
-        # The small grey lines under the course: our programs, then other units.
-        small = []
+        # The small grey lines under the course: whether it moved, our
+        # programs, then other units.
+        time, moved = our_time(record, args.alternatives)
+        small = [moved] if moved else []
         if programs and (ours := required_by(programs, key)):
             small.append(ours)
         if others.get(key):
             small.append("Also: " + ", ".join(UNIT_SHORT.get(u, u) for u in others[key]))
-        entries.append((key, record.get("Suggested time", ""), small, False))
+        entries.append((key, time, small, False))
 
     today = datetime.date.today().isoformat()
-    footer = (f"Suggested times from {source.name}, drawn {today}. "
-              "Alternative times and tutorials are not shown. "
-              "A course with sections at different times appears at each.")
+    if args.alternatives:
+        footer = (f"Times from {source.name}, drawn {today}, with every alternative time taken: "
+                  "a course that moved says ``alternative; was'' and its suggested time. "
+                  "Tutorials are not shown. A course with sections at different times appears at each.")
+    else:
+        footer = (f"Suggested times from {source.name}, drawn {today}. "
+                  "Alternative times and tutorials are not shown. "
+                  "A course with sections at different times appears at each.")
     if programs:
         footer += (" Under each course, in grey: our degree programs that require it, "
                    "read from the degree-requirements workbooks (``Hons:'' for the Honours track only); "
                    "then, after ``Also:'', the other units with a program that requires it, from "
                    f"{OTHER_UNITS.name}. "
                    "Courses that are only one choice among several are not marked.")
-    page, skipped = tex_page(f"Mathematics and Statistics, {args.sheet}: proposed timetable", entries, footer)
+    title = f"Mathematics and Statistics, {args.sheet}: proposed timetable"
+    if args.alternatives:
+        title += ", with the alternative times"
+    page, skipped = tex_page(title, entries, footer)
     output.write_text(tex_document([page]))
     print(f"Wrote {output}")
     if skipped:
@@ -524,7 +554,7 @@ def program_level_grids(args, source, proposal):
     master = {k: r for k, r in ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"]).items()
               if r.get("Status", "").strip().lower() != "inactive"}
     upper = {c for c in master if level(c) == 3}
-    folder = source.parent / "program-grids-by-level"
+    folder = source.parent / ("program-grids-by-level" + ("-alternatives" if args.alternatives else ""))
     folder.mkdir(exist_ok=True)
     today = datetime.date.today().isoformat()
 
@@ -566,7 +596,8 @@ def program_level_grids(args, source, proposal):
                         # at all: where it last sat in this season.
                         word = offering_word(master.get(course, {}))
                         if course in courses:
-                            time = courses[course].get("Suggested time", "")
+                            time, moved = our_time(courses[course], args.alternatives)
+                            word = "; ".join(w for w in (moved, word) if w)
                         elif course in offered:
                             continue
                         else:
@@ -592,8 +623,11 @@ def program_level_grids(args, source, proposal):
                           "had the last time they ran in person in that term, since their 2027-28 times are "
                           "not known yet. A course with sections at different times (or a lab) appears at "
                           f"each: choose one. Drawn {today}.")
-                page, _ = tex_page(f"{program['title']}, {title}: {LEVEL_NAMES[lvl]} courses",
-                                   entries, footer, spec)
+                heading = f"{program['title']}, {title}: {LEVEL_NAMES[lvl]} courses"
+                if args.alternatives:
+                    heading += ", with the alternative times"
+                    footer += " Every alternative time is taken: a course that moved says ``alternative; was''."
+                page, _ = tex_page(heading, entries, footer, spec)
                 pages.append(page)
         output = folder / f"{program['name']}.tex"
         output.write_text(tex_document(pages))
@@ -609,6 +643,8 @@ def main():
     parser.add_argument("-o", "--output", help="the department grid's .tex")
     parser.add_argument("--by-level", action="store_true",
                         help="one PDF per degree program, a page per level per term, required and options")
+    parser.add_argument("--alternatives", action="store_true",
+                        help="draw every course that has an Alternative time at that time")
     parser.add_argument("--no-pdf", action="store_true", help="do not run pr-latexmk")
     parser.add_argument("--no-programs", action="store_true",
                         help="department grid: leave out the programs under each course")

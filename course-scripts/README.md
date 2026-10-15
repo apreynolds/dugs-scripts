@@ -44,7 +44,9 @@ uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TT
 
 `timetable_grid.py` draws one term sheet of the same workbook as a one-page week grid (landscape ledger PDF, via `pr-latexmk`): days across, each split by course level, half-hour rows, coloured by level, with the programs that require each course in small grey type under it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `curriculum/COURSES-required-by-other-units.md`.
 It writes `timetable-grid-fall-2027.tex` and `.pdf` beside the workbook; `-s "Winter 2028"` draws the other term.
-With `--by-level` it writes one PDF per program into `program-grids-by-level/`, a page per level per term, each day split into Required and Options (named choices, our electives, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script).
+With `--by-level` it writes one PDF per program into `program-grids-by-level/`, a page per level (1000, 2000, 3000/4000) per term, each day split into Required and Options (named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script).
+`--alternatives`, with either, draws every course that has an Alternative time at that time, into files and folders named `-alternatives`, for comparing with the status quo.
+As each timetable decision is made, change that course's Suggested time on the term sheet and rerun: the grids always draw the sheet as it stands.
 
 ## The academic calendar
 
