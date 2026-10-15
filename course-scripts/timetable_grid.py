@@ -250,7 +250,7 @@ def place_entries(entries):
                 first = (start - FIRST_ROW_TIME) // STEP
                 last = (end - 1 - FIRST_ROW_TIME) // STEP
                 placed[(day, column)].append(
-                    (first, last, label, f"{time_text(start)}-{time_text(end)}", small))
+                    (first, last, label, f"{time_text(start)}-{time_text(end)}", small, start, end))
                 latest = max(latest, end)
     return placed, latest, skipped
 
@@ -258,7 +258,8 @@ def place_entries(entries):
 def blocks_in(items):
     """Group one column's courses into blocks: courses whose rows overlap share a block.
 
-    Returns [(first row, last row, [(course text, [small lines])])].
+    Returns [(first row, last row, [(course text, [small lines], start, end)],
+    same time?)]; start and end are minutes after midnight.
     """
     groups = []
     for item in sorted(items, key=lambda x: (x[0], x[1], x[2])):
@@ -271,12 +272,57 @@ def blocks_in(items):
     for group in groups:
         same_time = len({x[3] for x in group}) == 1
         lines = []
-        for _, _, label, time, small in group:
-            line = (label if same_time else f"{label} {time}", small)
+        for _, _, label, time, small, start, end in sorted(group, key=lambda x: (x[5], x[6])):
+            line = (label if same_time else f"{label} {time}", small, start, end)
             if line not in lines:
                 lines.append(line)
-        blocks.append((min(x[0] for x in group), max(x[1] for x in group), lines))
+        blocks.append((min(x[0] for x in group), max(x[1] for x in group), lines, same_time))
     return blocks
+
+
+def tex_brackets(first, span, lines, row_height):
+    """A block whose courses run at different times, drawn as a TikZ picture.
+
+    The text stays centred as in any block. Each course also gets a bracket
+    spanning exactly its own minutes: the first on the left edge "[", the
+    second on the right "]", and so on alternately; a third or later bracket
+    on a side already used steps in a little, so two never sit on top of
+    each other.
+    """
+    top = FIRST_ROW_TIME + first * STEP  # the time at the block's top edge
+    # A row is taller than its ht by its rowsep above and below (1pt each)
+    # and its rule (0.3pt); the cell's content starts 1pt below the rule.
+    extra_pt = 2.3
+
+    def depth(minutes):
+        """How far below the top of the cell's content a time falls, as LaTeX."""
+        rows = max(0.0, min(span, (minutes - top) / STEP))
+        return f"{rows * row_height:.2f}mm+{rows * extra_pt - 1:.2f}pt"
+
+    height = f"{span * row_height:.2f}mm+{span * extra_pt - 2:.2f}pt"
+    middle = f"{span * row_height / 2:.2f}mm+{(span * extra_pt - 2) / 2:.2f}pt"
+    draw = []
+    for i, (_, _, start, end) in enumerate(lines):
+        inset = 1.5 + (i // 2) * 2.5  # mm in from the cell edge
+        tick = 1.2  # mm: the bracket's top and bottom arms
+        y1, y2 = depth(start), depth(end)
+        if i % 2 == 0:  # left: [
+            x, arm = f"{inset}mm", f"{inset + tick}mm"
+        else:  # right: ]
+            x, arm = f"\\cellw-{inset}mm", f"\\cellw-{inset + tick}mm"
+        draw.append(rf"\draw[bracket] ({arm},-{y1}) -- ({x},-{y1}) -- ({x},-{y2}) -- ({arm},-{y2});")
+    text = r"\vspace{3pt}".join(course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
+                                for course, small, _, _ in lines)
+    # The text goes in a centred minipage, so it is set exactly as in any
+    # other block (same font, same paragraphs), just with room for brackets.
+    # \cellw holds the cell's width, taken before the picture starts: inside
+    # a TikZ node \linewidth is no longer the cell's.
+    return (r"\setlength{\cellw}{\linewidth}\begin{tikzpicture}"
+            rf"\useasboundingbox (0,0) rectangle (\cellw,-{height});"
+            + "".join(draw)
+            + rf"\node[inner sep=0pt] at (0.5\cellw,-{middle}) "
+              rf"{{\begin{{minipage}}{{\dimexpr\cellw-9mm\relax}}\centering {text}\end{{minipage}}}};"
+            r"\end{tikzpicture}")
 
 
 # The sub-columns under each day: (key, heading, fill colour, extra cell
@@ -285,8 +331,8 @@ def blocks_in(items):
 LEVEL_COLUMNS = [(lvl, LEVEL_NAMES[lvl], f"lvl{lvl}", "") for lvl in LEVELS]
 
 
-def tex_grid(placed, rows, spec):
-    """The body of the tblr: one line of LaTeX per table row."""
+def tex_grid(placed, rows, spec, row_height):
+    """The body of the tblr: one line of LaTeX per table row. row_height is in mm."""
     # cells[row][column] is the LaTeX for that cell, '' when empty or covered
     # by a block above it. Column 0 is the time.
     columns = len(DAYS) * len(spec)
@@ -294,13 +340,18 @@ def tex_grid(placed, rows, spec):
     for d, (day, _) in enumerate(DAYS):
         for i, (key, _, fill, extra) in enumerate(spec):
             col = d * len(spec) + i
-            for first, last, lines in blocks_in(placed.get((day, key), [])):
+            for first, last, lines, same_time in blocks_in(placed.get((day, key), [])):
                 span = last - first + 1
+                if not same_time:
+                    # Courses at different times: brackets show each one's span.
+                    cells[first][col] = (rf"\SetCell[r={span}]{{bg={fill}{extra}}} "
+                                         + tex_brackets(first, span, lines, row_height))
+                    continue
                 # Each course is its own paragraph, with its small grey lines
                 # right under it (\progs, defined in the preamble), and a
                 # little space before the next course.
                 parts = [course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
-                         for course, small in lines]
+                         for course, small, _, _ in lines]
                 cells[first][col] = rf"\SetCell[r={span}]{{bg={fill}{extra}}} " + r"\vspace{3pt}".join(parts)
     body = []
     for r in range(rows):
@@ -345,7 +396,7 @@ def tex_page(title, entries, footer, spec=LEVEL_COLUMNS):
         f" & {day_heads} \\\\",
         f" & {level_heads} \\\\",
     ]
-    lines += tex_grid(placed, rows, spec)
+    lines += tex_grid(placed, rows, spec, GRID_HEIGHT_MM / rows)
     lines += [
         r"\end{tblr}",
         "",
@@ -385,6 +436,11 @@ def tex_document(pages):
         "% <<< FONTS",
         "",
         r"\usepackage{tabularray}",
+        "% A block of courses at different times is a small TikZ picture, with a",
+        "% bracket spanning each course's own minutes.",
+        r"\usepackage{tikz}",
+        r"\tikzset{bracket/.style={line width=1.2pt, black!70}}",
+        r"\newlength{\cellw} % such a cell's width, measured before its picture starts",
         "",
         "% Fill colours for the four levels of course.",
         colours,
