@@ -42,6 +42,9 @@ uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TT
 - Other units' times are last year's, since their new ones are not known yet.
 - For next year's timetable, point `-w` at the new workbook; it needs `Fall YYYY` and `Winter YYYY` sheets with `Course`, `Suggested time`, `Alternative time` and `Tutorial` columns.
 
+`timetable_grid.py` draws one term sheet of the same workbook as a one-page week grid (landscape legal PDF, via `pr-latexmk`): days across, each split by course level, half-hour rows, coloured by level.
+It writes `timetable-grid-fall-2027.tex` and `.pdf` beside the workbook; `-s "Winter 2028"` draws the other term.
+
 ## The academic calendar
 
 The undergraduate calendar is only online from 2026-27, so it is copied to disk and searched there.
