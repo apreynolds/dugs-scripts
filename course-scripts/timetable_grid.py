@@ -17,6 +17,7 @@
 #                    the proposed timetable). Overwritten every run: it is output,
 #                    and nothing in it is typed by a person
 #       --no-pdf     do not run pr-latexmk afterwards
+#       --no-programs  leave out the programs under each course
 #
 # WHAT THIS IS FOR
 # A one-page picture of a term for a department meeting: Monday to Friday
@@ -24,8 +25,9 @@
 # columns, half-hour rows down the side. Each course sits in the rows its
 # suggested time covers, coloured by level, so a crowded slot or a gap stands
 # out. The layout is Patrick's, from a sketch he made in the workbook.
-# The page is landscape legal, typeset with tabularray in Patrick's default
-# fonts (the Libertinus block of the `basicdoc` snippet).
+# The page is landscape ledger (17in x 11in; it is read on screen, not
+# printed), typeset with tabularray in Patrick's default fonts (the
+# Libertinus block of the `basicdoc` snippet).
 #
 # WHAT IT SHOWS, AND WHAT IT LEAVES OUT
 #   - Suggested times only; alternative times and tutorials are left out.
@@ -33,6 +35,10 @@
 #   - Courses at the same level whose times overlap share one block, which
 #     spans all of them; the times are written out when they differ.
 #   - MATH 0863, a pre-university course, goes in the 1000-level column.
+#   - Under each course, very small: the degree programs that require it,
+#     as check_timetable.py reads the requirements workbooks ("Hons:" for
+#     Honours only). A course that is one choice among several is not marked.
+#     --no-programs leaves these out.
 # The grid is generated: change a time on the term sheet and run this again.
 #
 # This script borrows its time reading from check_timetable.py and its
@@ -47,6 +53,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+import build_advising as ba
 import build_courses as bc
 import check_timetable as ct
 
@@ -56,9 +63,20 @@ LEVELS = [1, 2, 3, 4]
 COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC", 4: "E4DFEC"}  # blue, green, yellow, lilac
 FIRST_ROW_TIME = 8 * 60 + 30  # the grid starts at 8:30
 STEP = 30  # minutes per row
-# Height shared out among the half-hour rows: the 7.5in of a landscape legal
-# page inside half-inch margins, less room for the title, headings and footer.
-GRID_HEIGHT_MM = 152  # 162 spilled onto a second page
+# The page: US ledger (11in x 17in, ANSI B), landscape. Nobody prints it, so
+# the largest common US size gives the most room.
+PAPER = "ansibpaper, landscape, margin=0.5in"
+# Height shared out among the half-hour rows: the 10in of the page inside
+# half-inch margins, less room for the title, headings and footer. (On legal
+# paper 152mm fitted and 162mm spilled onto a second page; here 212mm pushed
+# the footer onto a second page.)
+GRID_HEIGHT_MM = 200
+
+# How each degree-requirements workbook is named under a course, in this order.
+PROGRAM_NAMES = {
+    "bsc-math": "BSc Math", "ba-math": "BA Math", "bsc-biomath": "Bio-Math",
+    "bsc-mathecon": "Math-Econ", "bsc-mathphys": "Math-Phys",
+}
 
 
 def time_text(minutes):
@@ -72,11 +90,39 @@ def level(key):
     return min(max(int(key[-4]), 1), 4)
 
 
-def place_courses(courses):
+def required_by(programs, course):
+    """The programs that require a course, as short text for under it.
+
+    'All programs', or a list; programs that require it on the Honours track
+    only come after 'Hons:', e.g. 'BSc Math, BA Math; Hons: Math-Phys'.
+    "Required" is check_timetable.py's reading of the requirements workbooks:
+    a course in a category that needs all of its courses.
+    """
+    order = list(PROGRAM_NAMES)
+    every, honours = [], []
+    for program in sorted(programs, key=lambda p: order.index(p["name"]) if p["name"] in order else 99):
+        tracks = [track for track, entry in program["tracks"].items()
+                  if (role := ct.role_in(entry, course)) and role[0] == "required"]
+        if not tracks:
+            continue
+        name = PROGRAM_NAMES.get(program["name"], program["name"])
+        (every if len(tracks) == len(program["tracks"]) else honours).append(name)
+    if len(every) == len(programs):
+        text = "All programs"
+    else:
+        text = ", ".join(every)
+    if honours:
+        text += ("; " if text else "") + "Hons: " + ", ".join(honours)
+    return text
+
+
+def place_courses(courses, programs):
     """Sort a term's courses into the grid.
 
-    Returns ({(day, level): [(first row, last row, label, time)]}, latest end
-    time, [courses whose time could not be read]).
+    programs is check_timetable's reading of the requirements workbooks, or
+    None to leave the program names out.
+    Returns ({(day, level): [(first row, last row, label, time, programs text)]},
+    latest end time, [courses whose time could not be read]).
     """
     placed = defaultdict(list)
     skipped = []
@@ -93,6 +139,7 @@ def place_courses(courses):
         sections = record.get("Sections", "")
         if len(options) == 1 and sections.isdigit() and int(sections) > 1:
             label += f" ({sections} sec)"
+        needed_by = required_by(programs, key) if programs else ""
         for option in options:
             for day, start, end in option:
                 if day not in dict(DAYS):
@@ -100,7 +147,8 @@ def place_courses(courses):
                 # A row covers [t, t + 30); the course fills every row it touches.
                 first = (start - FIRST_ROW_TIME) // STEP
                 last = (end - 1 - FIRST_ROW_TIME) // STEP
-                placed[(day, level(key))].append((first, last, label, f"{time_text(start)}-{time_text(end)}"))
+                placed[(day, level(key))].append(
+                    (first, last, label, f"{time_text(start)}-{time_text(end)}", needed_by))
                 latest = max(latest, end)
     return placed, latest, skipped
 
@@ -108,7 +156,7 @@ def place_courses(courses):
 def blocks_in(items):
     """Group one column's courses into blocks: courses whose rows overlap share a block.
 
-    Returns [(first row, last row, [lines of text])].
+    Returns [(first row, last row, [(course text, programs text)])].
     """
     groups = []
     for item in sorted(items):
@@ -121,8 +169,8 @@ def blocks_in(items):
     for group in groups:
         same_time = len({x[3] for x in group}) == 1
         lines = []
-        for _, _, label, time in group:
-            line = label if same_time else f"{label} {time}"
+        for _, _, label, time, needed_by in group:
+            line = (label if same_time else f"{label} {time}", needed_by)
             if line not in lines:
                 lines.append(line)
         blocks.append((min(x[0] for x in group), max(x[1] for x in group), lines))
@@ -140,8 +188,12 @@ def tex_grid(placed, rows):
             col = d * len(LEVELS) + i
             for first, last, lines in blocks_in(placed.get((day, lvl), [])):
                 span = last - first + 1
+                # Each course, with the programs that require it in tiny grey
+                # type underneath (\progs is defined in the preamble).
+                parts = [course + (rf"\\\progs{{{needed_by}}}" if needed_by else "")
+                         for course, needed_by in lines]
                 # Braces let a tblr cell hold \\ line breaks.
-                text = "{" + r"\\".join(lines) + "}"
+                text = "{" + r"\\".join(parts) + "}"
                 cells[first][col] = rf"\SetCell[r={span}]{{bg=lvl{lvl}}} {text}"
     body = []
     for r in range(rows):
@@ -167,8 +219,8 @@ def tex_document(title, placed, rows, footer):
         "% change the times on the term sheet of the proposed timetable and rerun.",
         r"\documentclass[10pt]{article}",
         "",
-        "% Landscape legal: 14in x 8.5in, half-inch margins all round.",
-        r"\usepackage[legalpaper, landscape, margin=0.5in]{geometry}",
+        "% Landscape ledger (ANSI B): 17in x 11in, half-inch margins all round.",
+        rf"\usepackage[{PAPER}]{{geometry}}",
         r"\usepackage[dvipsnames]{xcolor}",
         r"\let\CheckCommand\providecommand % stops a microtype warning",
         r"\usepackage[tracking = true]{microtype}",
@@ -188,6 +240,9 @@ def tex_document(title, placed, rows, footer):
         "",
         "% Fill colours for the four levels of course.",
         colours,
+        "",
+        "% The programs that require a course, set very small and grey under it.",
+        r"\newcommand{\progs}[1]{{\tiny\color{black!65}#1}}",
         "",
         r"\pagestyle{empty} % no page number",
         r"\setlength{\parindent}{0pt}",
@@ -236,6 +291,8 @@ def main():
     parser.add_argument("-s", "--sheet", default="Fall 2027", help='term sheet to draw (default "Fall 2027")')
     parser.add_argument("-o", "--output", help="the .tex to write")
     parser.add_argument("--no-pdf", action="store_true", help="do not run pr-latexmk")
+    parser.add_argument("--no-programs", action="store_true",
+                        help="leave out the programs that require each course")
     args = parser.parse_args()
 
     source = Path(args.workbook).expanduser()
@@ -246,7 +303,11 @@ def main():
     if args.sheet not in terms:
         sys.exit(f"No sheet {args.sheet!r} in {source.name}; it has {', '.join(terms)}.")
 
-    placed, latest, skipped = place_courses(terms[args.sheet])
+    programs = None
+    if not args.no_programs:
+        programs, *_ = ct.load_programs(ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT,
+                                        bc.DEFAULT_TIMETABLES, set(terms[args.sheet]))
+    placed, latest, skipped = place_courses(terms[args.sheet], programs)
     rows = (latest - 1 - FIRST_ROW_TIME) // STEP + 1
     today = datetime.date.today().isoformat()
     title = f"Mathematics and Statistics, {args.sheet}: proposed timetable"
@@ -254,6 +315,11 @@ def main():
               "Alternative times and tutorials are not shown. "
               "A course with sections at different times appears at each; "
               "``(4 sec)'' means four sections at the same time.")
+    if programs:
+        footer += (" Under each course, in grey: the degree programs that require it, "
+                   "read from the degree-requirements workbooks; ``Hons:'' marks programs that "
+                   "require it on the Honours track only. "
+                   "Courses that are only one choice among several are not marked.")
     output.write_text(tex_document(title, placed, rows, footer))
     print(f"Wrote {output}")
     if skipped:
