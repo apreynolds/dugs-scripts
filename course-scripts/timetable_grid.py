@@ -81,6 +81,17 @@ DAYS = [("M", "Monday"), ("T", "Tuesday"), ("W", "Wednesday"), ("Th", "Thursday"
 LEVELS = [1, 2, 3, 4]
 # One colour per level, light enough to print and to read black text on.
 COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC", 4: "E4DFEC"}  # blue, green, yellow, lilac
+OPTION_FILL = "F2F2F2"  # light grey, for the Options column of the by-level pages
+
+# The first-year science lectures and labs a BSc chooses among. The workbooks'
+# SciLec and SciLab categories name no courses (an advisor assigns them); this
+# list is from the notes in bsc-mathecon-2026 ("6 of 8 from BIOL 1001/1012,
+# CHEM 1001/1012, ESCI 1052/1041, PHYS 1051/1052"; labs "BIOL 1006/1017, CHEM
+# 1006/1017, ESCI 1057 (or 1026)/1046, PHYS 1091/1092").
+FIRST_YEAR_SCIENCE = [
+    "BIOL1001", "BIOL1012", "CHEM1001", "CHEM1012", "ESCI1052", "ESCI1041", "PHYS1051", "PHYS1052",
+    "BIOL1006", "BIOL1017", "CHEM1006", "CHEM1017", "ESCI1057", "ESCI1046", "PHYS1091", "PHYS1092",
+]
 FIRST_ROW_TIME = 8 * 60 + 30  # the grid starts at 8:30
 DAY_END = 17 * 60  # and runs to at least 5:00, so every page shows the same day
 STEP = 30  # minutes per row
@@ -195,13 +206,16 @@ def required_by(programs, course):
 def place_entries(entries):
     """Sort entries into the grid.
 
-    Returns ({(day, level): [(first row, last row, label, time, small lines)]},
+    An entry may carry a fifth item, the sub-column it goes in under each day;
+    without one it goes under its level.
+    Returns ({(day, sub-column): [(first row, last row, label, time, small lines)]},
     latest end time, [entries whose time could not be read]).
     """
     placed = defaultdict(list)
     skipped = []
     latest = FIRST_ROW_TIME
-    for key, time, small, italic in entries:
+    for key, time, small, italic, *column in entries:
+        column = column[0] if column else level(key)
         options = ct.parse_options(time)
         if not options:
             skipped.append(f"{bc.course_display(key)} {time!r}")
@@ -216,7 +230,7 @@ def place_entries(entries):
                 # A row covers [t, t + 30); the course fills every row it touches.
                 first = (start - FIRST_ROW_TIME) // STEP
                 last = (end - 1 - FIRST_ROW_TIME) // STEP
-                placed[(day, level(key))].append(
+                placed[(day, column)].append(
                     (first, last, label, f"{time_text(start)}-{time_text(end)}", small))
                 latest = max(latest, end)
     return placed, latest, skipped
@@ -246,46 +260,55 @@ def blocks_in(items):
     return blocks
 
 
-def tex_grid(placed, rows):
+# The sub-columns under each day: (key, heading, fill colour, extra cell
+# options). The usual one is a column per level; the by-level pages use a
+# Required and an Options column instead.
+LEVEL_COLUMNS = [(lvl, f"{lvl}000-level", f"lvl{lvl}", "") for lvl in LEVELS]
+
+
+def tex_grid(placed, rows, spec):
     """The body of the tblr: one line of LaTeX per table row."""
     # cells[row][column] is the LaTeX for that cell, '' when empty or covered
     # by a block above it. Column 0 is the time.
-    columns = len(DAYS) * len(LEVELS)
+    columns = len(DAYS) * len(spec)
     cells = [[""] * columns for _ in range(rows)]
     for d, (day, _) in enumerate(DAYS):
-        for i, lvl in enumerate(LEVELS):
-            col = d * len(LEVELS) + i
-            for first, last, lines in blocks_in(placed.get((day, lvl), [])):
+        for i, (key, _, fill, extra) in enumerate(spec):
+            col = d * len(spec) + i
+            for first, last, lines in blocks_in(placed.get((day, key), [])):
                 span = last - first + 1
                 # Each course is its own paragraph, with its small grey lines
                 # right under it (\progs, defined in the preamble), and a
                 # little space before the next course.
                 parts = [course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
                          for course, small in lines]
-                cells[first][col] = rf"\SetCell[r={span}]{{bg=lvl{lvl}}} " + r"\vspace{3pt}".join(parts)
+                cells[first][col] = rf"\SetCell[r={span}]{{bg={fill}{extra}}} " + r"\vspace{3pt}".join(parts)
     body = []
     for r in range(rows):
         body.append(" & ".join([time_text(FIRST_ROW_TIME + r * STEP)] + cells[r]) + r" \\")
     return body
 
 
-def tex_page(title, entries, footer):
-    """One page: a title, the grid, and a footer. Returns (LaTeX lines, skipped entries)."""
+def tex_page(title, entries, footer, spec=LEVEL_COLUMNS):
+    """One page: a title, the grid, and a footer. Returns (LaTeX lines, skipped entries).
+
+    spec is the sub-columns under each day (see LEVEL_COLUMNS).
+    """
     placed, latest, skipped = place_entries(entries)
     rows = (max(latest, DAY_END) - 1 - FIRST_ROW_TIME) // STEP + 1
-    columns = len(DAYS) * len(LEVELS)
-    day_heads = " & ".join(rf"\SetCell[c={len(LEVELS)}]{{c}} {name}" + " &" * (len(LEVELS) - 1)
+    columns = len(DAYS) * len(spec)
+    day_heads = " & ".join(rf"\SetCell[c={len(spec)}]{{c}} {name}" + " &" * (len(spec) - 1)
                            for _, name in DAYS)
-    level_heads = " & ".join(rf"\SetCell{{bg=lvl{lvl}}} {lvl}000-level" for _ in DAYS for lvl in LEVELS)
+    level_heads = " & ".join(rf"\SetCell{{bg={fill}}} {heading}" for _ in DAYS for _, heading, fill, _ in spec)
     # A heavier rule at the left of each day: after the time column, and
-    # every four columns from there.
-    day_rules = ",".join(str(2 + d * len(LEVELS)) for d in range(len(DAYS) + 1))
+    # at every day's first sub-column from there.
+    day_rules = ",".join(str(2 + d * len(spec)) for d in range(len(DAYS) + 1))
     lines = [
         rf"{{\sffamily\bfseries\Large {tex_escape(title)}}}",
         "",
         r"\vspace{2mm}",
         r"\begin{tblr}{",
-        f"  % the time, then {columns} equal columns: four levels for each day",
+        f"  % the time, then {columns} equal columns: {len(spec)} for each day",
         f"  colspec = {{Q[r,t,8mm] *{{{columns}}}{{X[c,m]}}}},",
         "  colsep = 2pt,",
         "  rowsep = 1pt,",
@@ -303,7 +326,7 @@ def tex_page(title, entries, footer):
         f" & {day_heads} \\\\",
         f" & {level_heads} \\\\",
     ]
-    lines += tex_grid(placed, rows)
+    lines += tex_grid(placed, rows, spec)
     lines += [
         r"\end{tblr}",
         "",
@@ -318,6 +341,7 @@ def tex_document(pages):
     """The whole .tex file, with comments so it can be read on its own. pages: lists of lines."""
     colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {lvl}000-level"
                         for lvl, c in COLOURS.items())
+    colours += "\n" + rf"\definecolor{{optfill}}{{HTML}}{{{OPTION_FILL}}}  % options, on the by-level pages"
     lines = [
         "% !TeX program = pdflatex",
         "% GENERATED by timetable_grid.py (~/3work/course-scripts). Do not edit:",
@@ -502,6 +526,99 @@ def program_grids(args, source, proposal):
         compile_pdf(output, args.no_pdf)
 
 
+# ----------------------------------------------------------------------------
+# The program grids by level: a page per level per term, Required and Options
+# side by side under each day
+# ----------------------------------------------------------------------------
+BY_LEVEL_COLUMNS = [
+    ("req", "Required", "lvl{level}", ""),
+    ("opt", "Options", "optfill", ", fg=black!60"),  # grey text: a choice, not a requirement
+]
+
+
+def recent_time(offerings, course, season_terms):
+    """Another unit's course: (time, note) from the last time it ran in person this season, or None.
+
+    Its lecture times; or, for a course with labs and no lecture, its lab times.
+    """
+    per = offerings.get(course, {})
+    ran = [t for t in season_terms if per.get(t) and per[t]["inperson"]]
+    if not ran:
+        return None
+    offering, label = per[ran[-1]], bc.term_label(ran[-1])
+    if offering["lecture_slots"]:
+        return " | ".join(offering["lecture_slots"]), f"{label} time"
+    if offering["tutorial_slots"]:
+        return " | ".join(offering["tutorial_slots"]), f"lab, {label} times"
+    return None
+
+
+def program_level_grids(args, source, proposal):
+    terms = {title: courses for title, _, courses in proposal}
+    seasons = {title: season for title, season, _ in proposal}
+    programs, offerings, covered, _, _ = ct.load_programs(
+        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, set().union(*terms.values()))
+    folder = source.parent / "program-grids-by-level"
+    folder.mkdir(exist_ok=True)
+    today = datetime.date.today().isoformat()
+
+    for program in programs:
+        # Every course the program names, sorted into required (on some track)
+        # or option. A required course wins over an option.
+        required, options = {}, set()
+        for entry in program["tracks"].values():
+            for course, roles in entry["exact"].items():
+                tracks = required_tracks(program, course)
+                if tracks:
+                    required[course] = tracks
+                elif any(role == "option" for role, _, _ in roles):
+                    options.add(course)
+        if program["title"].startswith("BSc"):
+            options |= {c for c in FIRST_YEAR_SCIENCE if c not in required}
+
+        pages = []
+        for title, courses in terms.items():
+            season_terms = [t for t in covered if t.endswith(seasons[title])][-ct.LOOKBACK:]
+            # Our courses this term that only a pattern like MATH 3*** catches:
+            # electives, shown as options.
+            electives = {c for c in courses if c not in required and c not in options
+                         and any((r := ct.role_in(e, c)) and r[0] == "elective"
+                                 for e in program["tracks"].values())}
+            for lvl in LEVELS:
+                entries = []
+                for course in sorted(set(required) | options | electives):
+                    if level(course) != lvl:
+                        continue
+                    column = "req" if course in required else "opt"
+                    small = []
+                    if course in required and len(required[course]) < len(program["tracks"]):
+                        small.append(" and ".join(required[course]) + " only")
+                    if course[:-4] in ct.OURS:
+                        if course not in courses or not ct.parse_options(courses[course].get("Suggested time")):
+                            continue  # not offered this term, or no set time
+                        entries.append((course, courses[course]["Suggested time"], small, False, column))
+                        continue
+                    found = recent_time(offerings, course, season_terms)
+                    if found:
+                        time, note = found
+                        entries.append((course, time, small + [note], True, column))
+                if not entries:
+                    continue  # nothing at this level this term
+                spec = [(k, h, f.format(level=lvl), x) for k, h, f, x in BY_LEVEL_COLUMNS]
+                footer = (f"{program['title']}, {lvl}000-level courses: required ones in the first column "
+                          "under each day, options (named choices, electives, and first-year science) "
+                          f"in grey in the second. Our courses at the times proposed in {source.name}; "
+                          "other units' courses in italic at the time they had the last time they ran in "
+                          "person in that term, since their 2027-28 times are not known yet. A course with "
+                          f"sections at different times (or a lab) appears at each: choose one. Drawn {today}.")
+                page, _ = tex_page(f"{program['title']}, {title}: {lvl}000-level courses", entries, footer, spec)
+                pages.append(page)
+        output = folder / f"{program['name']}.tex"
+        output.write_text(tex_document(pages))
+        print(f"Wrote {output} ({len(pages)} pages)")
+        compile_pdf(output, args.no_pdf)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Draw the proposed timetable as week grids.")
     parser.add_argument("-w", "--workbook", default=ct.DEFAULT_WORKBOOK,
@@ -510,6 +627,8 @@ def main():
     parser.add_argument("-o", "--output", help="the department grid's .tex")
     parser.add_argument("--programs", action="store_true",
                         help="draw one PDF per degree program instead of the department grid")
+    parser.add_argument("--by-level", action="store_true",
+                        help="one PDF per degree program, a page per level per term, required and options")
     parser.add_argument("--no-pdf", action="store_true", help="do not run pr-latexmk")
     parser.add_argument("--no-programs", action="store_true",
                         help="department grid: leave out the programs under each course")
@@ -517,7 +636,9 @@ def main():
 
     source = Path(args.workbook).expanduser()
     proposal = ct.read_proposal(source)
-    if args.programs:
+    if args.by_level:
+        program_level_grids(args, source, proposal)
+    elif args.programs:
         program_grids(args, source, proposal)
     else:
         department_grid(args, source, {title: courses for title, _, courses in proposal})
