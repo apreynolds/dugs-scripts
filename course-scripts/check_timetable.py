@@ -252,7 +252,7 @@ def read_aliases(path):
 def read_programs(folder, aliases, live, hours_of):
     """Read every requirements workbook into the role each course plays.
 
-    Returns a list of programs, each {"name", "tracks": {track: {"exact":
+    Returns a list of programs, each {"name", "title", "tracks": {track: {"exact":
     {course: [(role, category, need)]}, "wild": [(pattern, category)]}}}.
     need is roughly how many of the category's courses a student takes.
     """
@@ -266,12 +266,15 @@ def read_programs(folder, aliases, live, hours_of):
         # The tracks are the "Total CH: <track>" rows of Meta; the Requirements
         # sheet has a column of hours for each.
         tracks = []
-        for field, *_ in book["Meta"].iter_rows(values_only=True):
+        title = path.stem
+        for field, value, *_ in book["Meta"].iter_rows(values_only=True):
             if str(field or "").startswith("Total CH: "):
                 tracks.append(str(field)[len("Total CH: "):].strip())
+            elif field == "Program" and value:
+                title = str(value).strip()  # 'BSc Mathematics', for headings
         rows = book["Requirements"].iter_rows(values_only=True)
         header = [str(h).strip() if h is not None else "" for h in next(rows, [])]
-        program = {"name": re.sub(r"-\d{4}$", "", path.stem),
+        program = {"name": re.sub(r"-\d{4}$", "", path.stem), "title": title,
                    "tracks": {t: {"exact": defaultdict(list), "wild": []} for t in tracks}}
         for row in rows:
             record = dict(zip(header, row))
