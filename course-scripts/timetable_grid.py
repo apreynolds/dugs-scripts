@@ -73,8 +73,10 @@ PAPER = "ansibpaper, landscape, margin=0.5in"
 GRID_HEIGHT_MM = 200
 
 # How each degree-requirements workbook is named under a course, in this order.
+# Only these are shown. The BA Math is left out: the MATH/STAT courses it
+# requires are essentially the BSc Math's (Patrick, 2026-10-15).
 PROGRAM_NAMES = {
-    "bsc-math": "BSc Math", "ba-math": "BA Math", "bsc-biomath": "Bio-Math",
+    "bsc-math": "BSc Math", "bsc-biomath": "Bio-Math",
     "bsc-mathecon": "Math-Econ", "bsc-mathphys": "Math-Phys",
 }
 
@@ -99,8 +101,9 @@ def required_by(programs, course):
     a course in a category that needs all of its courses.
     """
     order = list(PROGRAM_NAMES)
+    programs = sorted((p for p in programs if p["name"] in PROGRAM_NAMES), key=lambda p: order.index(p["name"]))
     every, honours = [], []
-    for program in sorted(programs, key=lambda p: order.index(p["name"]) if p["name"] in order else 99):
+    for program in programs:
         tracks = [track for track, entry in program["tracks"].items()
                   if (role := ct.role_in(entry, course)) and role[0] == "required"]
         if not tracks:
@@ -188,12 +191,12 @@ def tex_grid(placed, rows):
             col = d * len(LEVELS) + i
             for first, last, lines in blocks_in(placed.get((day, lvl), [])):
                 span = last - first + 1
-                # Each course, with the programs that require it in tiny grey
-                # type underneath (\progs is defined in the preamble).
-                parts = [course + (rf"\\\progs{{{needed_by}}}" if needed_by else "")
+                # Each course is its own paragraph, with the programs that
+                # require it in tiny grey type right under it (\progs, defined
+                # in the preamble), and a little space before the next course.
+                parts = [course + r"\par" + (rf"\progs{{{needed_by}}}" if needed_by else "")
                          for course, needed_by in lines]
-                # Braces let a tblr cell hold \\ line breaks.
-                text = "{" + r"\\".join(parts) + "}"
+                text = r"\vspace{3pt}".join(parts)
                 cells[first][col] = rf"\SetCell[r={span}]{{bg=lvl{lvl}}} {text}"
     body = []
     for r in range(rows):
@@ -242,7 +245,9 @@ def tex_document(title, placed, rows, footer):
         colours,
         "",
         "% The programs that require a course, set very small and grey under it.",
-        r"\newcommand{\progs}[1]{{\tiny\color{black!65}#1}}",
+        "% The \\par inside the braces ends the paragraph while \\tiny is still in",
+        "% force, so its lines use \\tiny's own close spacing.",
+        r"\newcommand{\progs}[1]{{\tiny\color{black!65}#1\par}}",
         "",
         r"\pagestyle{empty} % no page number",
         r"\setlength{\parindent}{0pt}",
