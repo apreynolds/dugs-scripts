@@ -37,8 +37,10 @@
 #   - MATH 0863, a pre-university course, goes in the 1000-level column.
 #   - Under each course, very small: the degree programs that require it,
 #     as check_timetable.py reads the requirements workbooks ("Hons:" for
-#     Honours only). A course that is one choice among several is not marked.
-#     --no-programs leaves these out.
+#     Honours only), then "Also:" and the other units with a program that
+#     requires it, from the "Required, by course" table of
+#     curriculum/COURSES-required-by-other-units.md. A course that is one
+#     choice among several is not marked. --no-programs leaves both out.
 # The grid is generated: change a time on the term sheet and run this again.
 #
 # This script borrows its time reading from check_timetable.py and its
@@ -80,6 +82,40 @@ PROGRAM_NAMES = {
     "bsc-mathecon": "Math-Econ", "bsc-mathphys": "Math-Phys",
 }
 
+# Other units that require each course: the "Required, by course" table of the
+# department's reference document, which is where to change them.
+OTHER_UNITS = bc.DUGS / "curriculum/COURSES-required-by-other-units.md"
+OTHER_UNITS_HEADING = "# Required, by course"
+# Shorter names for the grid, where a cell is narrow.
+UNIT_SHORT = {
+    "Computer Science": "CS", "Medical Laboratory Science": "Med Lab Sci",
+    "Environmental Sciences": "Env Sci", "Earth Sciences": "Earth Sci",
+}
+
+
+def read_other_units(path):
+    """{course: [units]} from the 'Required, by course' table of the reference document.
+
+    The table's rows look like '| MATH 1843 | Management | BBA (first term); ... |'.
+    Returns {} (and says so) if the document or its table cannot be found.
+    """
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError:
+        print(f"  {path} not found; other units are left out.")
+        return {}
+    if OTHER_UNITS_HEADING not in lines:
+        print(f"  No '{OTHER_UNITS_HEADING}' section in {Path(path).name}; other units are left out.")
+        return {}
+    units = {}
+    for line in lines[lines.index(OTHER_UNITS_HEADING) + 1:]:
+        if line.startswith("# "):
+            break  # the next section
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 2 and ba.any_course(bc.course_key(cells[0])):
+            units[bc.course_key(cells[0])] = [u.strip() for u in cells[1].split(",") if u.strip()]
+    return units
+
 
 def time_text(minutes):
     """510 -> '8:30', 780 -> '1:00': the 12-hour clock, as the timetable writes it."""
@@ -95,7 +131,7 @@ def level(key):
 def required_by(programs, course):
     """The programs that require a course, as short text for under it.
 
-    'All programs', or a list; programs that require it on the Honours track
+    'All our programs', or a list; programs that require it on the Honours track
     only come after 'Hons:', e.g. 'BSc Math, BA Math; Hons: Math-Phys'.
     "Required" is check_timetable.py's reading of the requirements workbooks:
     a course in a category that needs all of its courses.
@@ -111,7 +147,7 @@ def required_by(programs, course):
         name = PROGRAM_NAMES.get(program["name"], program["name"])
         (every if len(tracks) == len(program["tracks"]) else honours).append(name)
     if len(every) == len(programs):
-        text = "All programs"
+        text = "All our programs"  # "our": the "Also:" line below lists other units
     else:
         text = ", ".join(every)
     if honours:
@@ -119,12 +155,12 @@ def required_by(programs, course):
     return text
 
 
-def place_courses(courses, programs):
+def place_courses(courses, programs, others):
     """Sort a term's courses into the grid.
 
-    programs is check_timetable's reading of the requirements workbooks, or
-    None to leave the program names out.
-    Returns ({(day, level): [(first row, last row, label, time, programs text)]},
+    programs is check_timetable's reading of the requirements workbooks, and
+    others is {course: [units]}; None and {} leave them out.
+    Returns ({(day, level): [(first row, last row, label, time, [small lines])]},
     latest end time, [courses whose time could not be read]).
     """
     placed = defaultdict(list)
@@ -142,7 +178,12 @@ def place_courses(courses, programs):
         sections = record.get("Sections", "")
         if len(options) == 1 and sections.isdigit() and int(sections) > 1:
             label += f" ({sections} sec)"
-        needed_by = required_by(programs, key) if programs else ""
+        # The small grey lines under the course: our programs, then other units.
+        needed_by = []
+        if programs and (ours := required_by(programs, key)):
+            needed_by.append(ours)
+        if others.get(key):
+            needed_by.append("Also: " + ", ".join(UNIT_SHORT.get(u, u) for u in others[key]))
         for option in options:
             for day, start, end in option:
                 if day not in dict(DAYS):
@@ -159,7 +200,7 @@ def place_courses(courses, programs):
 def blocks_in(items):
     """Group one column's courses into blocks: courses whose rows overlap share a block.
 
-    Returns [(first row, last row, [(course text, programs text)])].
+    Returns [(first row, last row, [(course text, [small lines])])].
     """
     groups = []
     for item in sorted(items):
@@ -194,7 +235,7 @@ def tex_grid(placed, rows):
                 # Each course is its own paragraph, with the programs that
                 # require it in tiny grey type right under it (\progs, defined
                 # in the preamble), and a little space before the next course.
-                parts = [course + r"\par" + (rf"\progs{{{needed_by}}}" if needed_by else "")
+                parts = [course + r"\par" + "".join(rf"\progs{{{small}}}" for small in needed_by)
                          for course, needed_by in lines]
                 text = r"\vspace{3pt}".join(parts)
                 cells[first][col] = rf"\SetCell[r={span}]{{bg=lvl{lvl}}} {text}"
@@ -308,11 +349,12 @@ def main():
     if args.sheet not in terms:
         sys.exit(f"No sheet {args.sheet!r} in {source.name}; it has {', '.join(terms)}.")
 
-    programs = None
+    programs, others = None, {}
     if not args.no_programs:
         programs, *_ = ct.load_programs(ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT,
                                         bc.DEFAULT_TIMETABLES, set(terms[args.sheet]))
-    placed, latest, skipped = place_courses(terms[args.sheet], programs)
+        others = read_other_units(OTHER_UNITS)
+    placed, latest, skipped = place_courses(terms[args.sheet], programs, others)
     rows = (latest - 1 - FIRST_ROW_TIME) // STEP + 1
     today = datetime.date.today().isoformat()
     title = f"Mathematics and Statistics, {args.sheet}: proposed timetable"
@@ -321,9 +363,10 @@ def main():
               "A course with sections at different times appears at each; "
               "``(4 sec)'' means four sections at the same time.")
     if programs:
-        footer += (" Under each course, in grey: the degree programs that require it, "
-                   "read from the degree-requirements workbooks; ``Hons:'' marks programs that "
-                   "require it on the Honours track only. "
+        footer += (" Under each course, in grey: our degree programs that require it, "
+                   "read from the degree-requirements workbooks (``Hons:'' for the Honours track only); "
+                   "then, after ``Also:'', the other units with a program that requires it, from "
+                   f"{OTHER_UNITS.name}. "
                    "Courses that are only one choice among several are not marked.")
     output.write_text(tex_document(title, placed, rows, footer))
     print(f"Wrote {output}")
