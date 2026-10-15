@@ -44,6 +44,7 @@ uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TT
 
 `timetable_grid.py` draws one term sheet of the same workbook as a one-page week grid (landscape ledger PDF, via `pr-latexmk`): days across, each split by course level, half-hour rows, coloured by level, with the programs that require each course in small grey type under it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `curriculum/COURSES-required-by-other-units.md`.
 It writes `timetable-grid-fall-2027.tex` and `.pdf` beside the workbook; `-s "Winter 2028"` draws the other term.
+With `--programs` it instead writes one PDF per degree-requirements workbook into `program-grids/`, a page per term, showing the courses that program requires: ours at their suggested times, other units' (in italic) at their most recent time in that term.
 
 ## The academic calendar
 
