@@ -26,6 +26,22 @@ uv run --script ~/3work/course-scripts/build_courses.py && uv run --script ~/3wo
 - A course on the master list's `removed` sheet gets no row in the advising timetable, even if a degree-requirements workbook still names it; the build prints which workbook that is.
 - If the advising build fails with "Operation timed out" and "File is not a zip file", OneDrive was still syncing the workbook after a recent write. Wait a minute and run it again.
 
+## The timetable check
+
+`check_timetable.py` checks the timetable committee's proposed timetable against the degree programs.
+It reads the term sheets of `timetable-committee/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
+Those three are regenerated on every run; the term sheets and `Notes` are never touched.
+
+```
+uv run --script ~/3work/course-scripts/check_timetable.py
+uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
+```
+
+- Rerun it after changing any time in the workbook. `-n` prints the findings without writing; `--try` tests a time that is not in the workbook.
+- A clash is reported only when no choice of sections avoids it, and is graded by how firmly the programs need both courses: Both required, Required + option, Both options, Elective, or Ours only.
+- Other units' times are last year's, since their new ones are not known yet.
+- For next year's timetable, point `-w` at the new workbook; it needs `Fall YYYY` and `Winter YYYY` sheets with `Course`, `Suggested time`, `Alternative time` and `Tutorial` columns.
+
 ## The academic calendar
 
 The undergraduate calendar is only online from 2026-27, so it is copied to disk and searched there.
