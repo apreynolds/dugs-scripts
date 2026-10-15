@@ -118,7 +118,9 @@ ROLE_RANK = {"required": 3, "option": 2, "elective": 1}
 DAY = re.compile(r"Th|Sa|Su|M|T|W|F|S")
 DAY_ORDER = ["M", "T", "W", "Th", "F", "Sa", "Su", "S"]
 MEETING = re.compile(r"([A-Za-z/]+)\s+(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})")
-WILDCARD = re.compile(r"\b([A-Z]{2,4})\s?([\d*]{4})\b")
+# 'MATH 3***'. It ends with a lookahead, not \b: there is no word boundary
+# between '*' and ';' or the end of the text, so \b never matched a pattern.
+WILDCARD = re.compile(r"\b([A-Z]{2,4})\s?(\d[\d*]{3})(?![\d*])")
 
 
 # ----------------------------------------------------------------------------
