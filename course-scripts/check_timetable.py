@@ -59,7 +59,9 @@
 # Two options in the same category that needs only one course are
 # alternatives to each other, so a clash between them does not matter.
 # Each pair is graded by the worst case over all programs and tracks:
-#   Both required, Required + option, Both options, Elective, and
+#   Both required, Required + option, Both options, Required + elective
+#   (an elective caught by a pattern like MATH 3*** against a required
+#   course), Elective (an elective against an option or another elective), and
 #   Ours only (two of our courses that no program names together; this
 #   is what the "no two of our courses overlap" guideline is about).
 #
@@ -112,7 +114,7 @@ SUBSTITUTES = {
 }
 
 # Worst first.
-SEVERITY = ["Both required", "Required + option", "Both options", "Elective", "Ours only"]
+SEVERITY = ["Both required", "Required + option", "Both options", "Required + elective", "Elective", "Ours only"]
 ROLE_RANK = {"required": 3, "option": 2, "elective": 1}
 
 DAY = re.compile(r"Th|Sa|Su|M|T|W|F|S")
@@ -373,7 +375,10 @@ def pair_severity(programs, a, b):
             if role_a[1] == role_b[1] and roles == {"option"} and role_a[2] < 2:
                 continue
             if "elective" in roles:
-                level = 3
+                # A required course against an elective blocks that elective
+                # for everyone taking the required one that year: worse than
+                # two electives meeting.
+                level = 3 if "required" in roles else 4
             elif roles == {"required"}:
                 level = 0
             elif "required" in roles:
@@ -671,7 +676,9 @@ def about_sheet(sheet, today, args, tt_files, terms, programs):
         ("Clash", "Every section of one course overlaps every section of the other, so no student "
                   "can dodge it. Lectures and labs/tutorials are both checked."),
         ("Worst case", "Over every program and track: Both required (a student takes both), Required + "
-                       "option, Both options, Elective (one is only caught by a pattern like MATH 3***), "
+                       "option, Both options, Required + elective (an elective, caught only by a pattern "
+                       "like MATH 3***, against a required course), Elective (an elective against an "
+                       "option or another elective), "
                        "or Ours only (two of our courses that no program names together)."),
         ("Required or option", "Read from the requirements workbooks: a category whose hours equal the "
                                "hours of its courses is required; one that needs fewer is a choice. "
