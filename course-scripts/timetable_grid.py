@@ -25,7 +25,7 @@
 #
 # WHAT THIS IS FOR
 # A one-page picture of a term: Monday to Friday across the top, each day
-# split into 1000-, 2000-, 3000- and 4000-level columns, half-hour rows down
+# split into 1000-level, 2000-level and 3000/4000-level columns, half-hour rows down
 # the side. Each course sits in the rows its time covers, coloured by level,
 # so a crowded slot or a gap stands out. The layout is Patrick's, from a
 # sketch he made in the workbook. The page is landscape ledger (17in x 11in;
@@ -73,14 +73,19 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from openpyxl import load_workbook
+
 import build_advising as ba
 import build_courses as bc
 import check_timetable as ct
 
 DAYS = [("M", "Monday"), ("T", "Tuesday"), ("W", "Wednesday"), ("Th", "Thursday"), ("F", "Friday")]
-LEVELS = [1, 2, 3, 4]
+# 1000-level, 2000-level, and the upper years together: 3000- and 4000-level
+# courses are taken side by side, so they share a column (Patrick, 2026-10-15).
+LEVELS = [1, 2, 3]
+LEVEL_NAMES = {1: "1000-level", 2: "2000-level", 3: "3000/4000-level"}
 # One colour per level, light enough to print and to read black text on.
-COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC", 4: "E4DFEC"}  # blue, green, yellow, lilac
+COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC"}  # blue, green, yellow
 OPTION_FILL = "F2F2F2"  # light grey, for the Options column of the by-level pages
 
 # The first-year science lectures and labs a BSc chooses among. The workbooks'
@@ -130,8 +135,8 @@ def time_text(minutes):
 
 
 def level(key):
-    """'MATH 3213' -> 3. MATH 0863 counts as first year."""
-    return min(max(int(key[-4]), 1), 4)
+    """'MATH 2213' -> 2; 'MATH 3213' and 'MATH 4153' -> 3. MATH 0863 counts as first year."""
+    return min(max(int(key[-4]), 1), 3)
 
 
 def tex_escape(text):
@@ -263,7 +268,7 @@ def blocks_in(items):
 # The sub-columns under each day: (key, heading, fill colour, extra cell
 # options). The usual one is a column per level; the by-level pages use a
 # Required and an Options column instead.
-LEVEL_COLUMNS = [(lvl, f"{lvl}000-level", f"lvl{lvl}", "") for lvl in LEVELS]
+LEVEL_COLUMNS = [(lvl, LEVEL_NAMES[lvl], f"lvl{lvl}", "") for lvl in LEVELS]
 
 
 def tex_grid(placed, rows, spec):
@@ -339,7 +344,7 @@ def tex_page(title, entries, footer, spec=LEVEL_COLUMNS):
 
 def tex_document(pages):
     """The whole .tex file, with comments so it can be read on its own. pages: lists of lines."""
-    colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {lvl}000-level"
+    colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {LEVEL_NAMES[lvl]}"
                         for lvl, c in COLOURS.items())
     colours += "\n" + rf"\definecolor{{optfill}}{{HTML}}{{{OPTION_FILL}}}  % options, on the by-level pages"
     lines = [
@@ -553,11 +558,50 @@ def recent_time(offerings, course, season_terms):
     return None
 
 
+def master_slot(text):
+    """A master-list timeslot cell -> a time this script can draw, or ''.
+
+    'MWF 11:30-12:20 + tut T 8:30-9:20 (new 2026 F)' -> 'MWF 11:30-12:20';
+    '|' separates sections and is kept; '-' and '(no set time)' give ''.
+    """
+    pieces = []
+    for piece in str(text or "").split("|"):
+        piece = piece.split("+")[0]  # drop the tutorial
+        if ct.parse_options(piece):
+            pieces.append(piece.strip())
+    return " | ".join(pieces)
+
+
+def offering_word(record):
+    """The master list's Offering note and Status, made brief: 'alternate years', 'occasional'.
+
+    Blank means every year in the same term, which needs no note.
+    """
+    if record.get("Status", "").strip().lower() == "hiatus":
+        return "on hiatus"
+    note = record.get("Offering note", "").strip()
+    if note.startswith("alternate years"):
+        return "alternate years"
+    match = re.match(r"(\d) of last \d+ years", note)
+    if match:
+        times = int(match[1])
+        return "most years" if times >= 5 else "some years" if times >= 3 else "occasional"
+    if note.startswith("not since"):
+        return note
+    return ""  # blank, '-', or 'every year since ...': runs every year now
+
+
 def program_level_grids(args, source, proposal):
     terms = {title: courses for title, _, courses in proposal}
     seasons = {title: season for title, season, _ in proposal}
+    offered = set().union(*terms.values())  # ours that run in 2027-28, in either term
     programs, offerings, covered, _, _ = ct.load_programs(
-        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, set().union(*terms.values()))
+        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, offered)
+    # Every MATH/STAT course on the master list that is not inactive: its
+    # offering note, and its usual slot for a course not running in 2027-28.
+    master = {k: r for k, r in ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"]).items()
+              if r.get("Status", "").strip().lower() != "inactive"}
+    upper = {c for c in master if level(c) == 3}
     folder = source.parent / "program-grids-by-level"
     folder.mkdir(exist_ok=True)
     today = datetime.date.today().isoformat()
@@ -579,14 +623,15 @@ def program_level_grids(args, source, proposal):
         pages = []
         for title, courses in terms.items():
             season_terms = [t for t in covered if t.endswith(seasons[title])][-ct.LOOKBACK:]
-            # Our courses this term that only a pattern like MATH 3*** catches:
-            # electives, shown as options.
-            electives = {c for c in courses if c not in required and c not in options
-                         and any((r := ct.role_in(e, c)) and r[0] == "elective"
-                                 for e in program["tracks"].values())}
+            slot_column = "Fall timeslot" if seasons[title] == "FA" else "Winter timeslot"
+            # Our courses that only a pattern like MATH 3*** catches are
+            # electives, and every upper-level course of ours is shown too:
+            # all of them go under Options.
+            electives = {c for c in master if any((r := ct.role_in(e, c)) and r[0] == "elective"
+                                                  for e in program["tracks"].values())}
             for lvl in LEVELS:
                 entries = []
-                for course in sorted(set(required) | options | electives):
+                for course in sorted(set(required) | options | electives | upper):
                     if level(course) != lvl:
                         continue
                     column = "req" if course in required else "opt"
@@ -594,9 +639,20 @@ def program_level_grids(args, source, proposal):
                     if course in required and len(required[course]) < len(program["tracks"]):
                         small.append(" and ".join(required[course]) + " only")
                     if course[:-4] in ct.OURS:
-                        if course not in courses or not ct.parse_options(courses[course].get("Suggested time")):
-                            continue  # not offered this term, or no set time
-                        entries.append((course, courses[course]["Suggested time"], small, False, column))
+                        # In 2027-28 this term: its proposed time. In 2027-28
+                        # but the other term: not on this page. Not in 2027-28
+                        # at all: where it last sat in this season.
+                        word = offering_word(master.get(course, {}))
+                        if course in courses:
+                            time = courses[course].get("Suggested time", "")
+                        elif course in offered:
+                            continue
+                        else:
+                            time = master_slot(master.get(course, {}).get(slot_column))
+                            word = "; ".join(w for w in (word, "not in 2027-28") if w)
+                        if not ct.parse_options(time):
+                            continue  # no set time (a thesis), or never in this season
+                        entries.append((course, time, small + ([word] if word else []), False, column))
                         continue
                     found = recent_time(offerings, course, season_terms)
                     if found:
@@ -605,13 +661,17 @@ def program_level_grids(args, source, proposal):
                 if not entries:
                     continue  # nothing at this level this term
                 spec = [(k, h, f.format(level=lvl), x) for k, h, f, x in BY_LEVEL_COLUMNS]
-                footer = (f"{program['title']}, {lvl}000-level courses: required ones in the first column "
-                          "under each day, options (named choices, electives, and first-year science) "
-                          f"in grey in the second. Our courses at the times proposed in {source.name}; "
-                          "other units' courses in italic at the time they had the last time they ran in "
-                          "person in that term, since their 2027-28 times are not known yet. A course with "
-                          f"sections at different times (or a lab) appears at each: choose one. Drawn {today}.")
-                page, _ = tex_page(f"{program['title']}, {title}: {lvl}000-level courses", entries, footer, spec)
+                footer = (f"{program['title']}, {LEVEL_NAMES[lvl]} courses: required ones in the first column "
+                          "under each day; options in grey in the second (named choices, first-year science, "
+                          "and every 3000/4000-level MATH/STAT course). Our courses at the times proposed in "
+                          f"{source.name}; one not running in 2027-28 at the slot it last had in this term, "
+                          "marked ``not in 2027-28''. Notes such as ``alternate years'' or ``occasional'' "
+                          "come from the master course list. Other units' courses in italic at the time they "
+                          "had the last time they ran in person in that term, since their 2027-28 times are "
+                          "not known yet. A course with sections at different times (or a lab) appears at "
+                          f"each: choose one. Drawn {today}.")
+                page, _ = tex_page(f"{program['title']}, {title}: {LEVEL_NAMES[lvl]} courses",
+                                   entries, footer, spec)
                 pages.append(page)
         output = folder / f"{program['name']}.tex"
         output.write_text(tex_document(pages))
