@@ -6,7 +6,7 @@
 # Usage:
 #   ./timetable_grid.py                     department grid, Fall 2027 -> timetable-grid-fall-2027.pdf
 #   ./timetable_grid.py -s "Winter 2028"    department grid for another term sheet
-#   ./timetable_grid.py --programs          one PDF per degree program, a page per term
+#   ./timetable_grid.py --by-level          one PDF per degree program, a page per level per term
 #   ./timetable_grid.py -o OUT.tex          write the department grid's LaTeX somewhere else
 #   ./timetable_grid.py --no-pdf            write the .tex only
 #   ./timetable_grid.py -h | --help
@@ -16,9 +16,9 @@
 #   -s, --sheet      the term sheet for the department grid (default: "Fall 2027")
 #   -o, --output     the department grid's .tex (default: timetable-grid-<sheet>.tex
 #                    beside the proposed timetable)
-#       --programs   instead, draw each degree-requirements workbook's required
-#                    courses, every term sheet, into program-grids/<program>.tex
-#                    beside the proposed timetable
+#       --by-level   instead, draw each degree-requirements workbook's courses,
+#                    a page per level per term sheet, into
+#                    program-grids-by-level/<program>.tex beside the proposed timetable
 #       --no-pdf     do not run pr-latexmk afterwards
 #       --no-programs  department grid: leave out the programs under each course
 # Every .tex is overwritten each run: it is output, and nothing in it is typed.
@@ -40,17 +40,20 @@
 # table of curriculum/COURSES-required-by-other-units.md. A course that is one
 # choice among several is not marked. --no-programs leaves both out.
 #
-# THE PROGRAM GRIDS
-# For each degree-requirements workbook, the courses it requires, one page per
-# term sheet:
-#   - our courses at their suggested time; one not on the term sheet is not
-#     offered that term, and is left off that page
+# THE PROGRAM GRIDS BY LEVEL
+# For each degree-requirements workbook, a page per level (1000, 2000,
+# 3000/4000) per term sheet, each day split into Required and Options:
+#   - our courses at their suggested time; one running in 2027-28 in the other
+#     term is left off; one not running in 2027-28 at all sits where it last
+#     sat in this term, marked "not in 2027-28"
+#   - a brief note from the master list's Offering note: "alternate years",
+#     "occasional", ...
 #   - other units' courses in italic, at the time they had the last time they
 #     ran in person that fall (or winter), since their 2027-28 times are not
-#     known yet
+#     known yet; a course with labs and no lecture at its lab times
 #   - "Honours only" (or "Major only") under a course one track alone requires
-#   - courses with labs and no lecture, and courses with no set time (a
-#     thesis), listed under the grid instead
+#   - Options: named choices, first-year science (FIRST_YEAR_SCIENCE), and
+#     every 3000/4000-level MATH/STAT course that is not inactive
 #
 # IN BOTH
 #   - Alternative times and tutorials are left out.
@@ -451,87 +454,6 @@ def department_grid(args, source, terms):
 
 
 # ----------------------------------------------------------------------------
-# The program grids
-# ----------------------------------------------------------------------------
-def program_grids(args, source, proposal):
-    terms = {title: courses for title, _, courses in proposal}
-    seasons = {title: season for title, season, _ in proposal}
-    ours_offered = set().union(*terms.values())
-    programs, offerings, covered, _, _ = ct.load_programs(
-        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, ours_offered)
-    folder = source.parent / "program-grids"
-    folder.mkdir(exist_ok=True)
-    today = datetime.date.today().isoformat()
-
-    for program in programs:
-        # Every course this program requires on at least one track.
-        required = {}
-        for entry in program["tracks"].values():
-            for course in entry["exact"]:
-                tracks = required_tracks(program, course)
-                if tracks:
-                    required[course] = tracks
-        pages, labs_only, timeless = [], set(), set()
-        for title, courses in terms.items():
-            season_terms = [t for t in covered if t.endswith(seasons[title])][-ct.LOOKBACK:]
-            entries = []
-            for course, tracks in sorted(required.items()):
-                small = []
-                if len(tracks) < len(program["tracks"]):
-                    small.append(" and ".join(tracks) + " only")
-                if course[:-4] in ct.OURS:
-                    if course not in courses:
-                        continue  # not offered this term
-                    time = courses[course].get("Suggested time", "")
-                    if not ct.parse_options(time):
-                        timeless.add(course)
-                        continue
-                    entries.append((course, time, small, False))
-                    continue
-                # Another unit's course: the time it had the last time it ran
-                # in person this season.
-                per = offerings.get(course, {})
-                ran = [t for t in season_terms if per.get(t) and per[t]["inperson"]]
-                if not ran:
-                    continue  # not offered in this season lately
-                offering = per[ran[-1]]
-                if not offering["lecture_slots"]:
-                    labs_only.add(course)
-                    continue
-                small.append(f"{bc.term_label(ran[-1])} time")
-                entries.append((course, " | ".join(offering["lecture_slots"]), small, True))
-            # Ours with no section in any term sheet, and others with none lately.
-            footer = (f"{program['title']}: the courses it requires, at the times proposed in "
-                      f"{source.name} for our courses, drawn {today}. "
-                      "Other units' courses, in italic, are shown at the time they had the last time "
-                      "they ran in person in that term (e.g. ``2026 F time''), since their 2027-28 times "
-                      "are not known yet. A course with sections at different times appears at each: "
-                      "choose one. Alternative times, tutorials and labs are not shown, nor are "
-                      "courses that are one choice among several, or electives.")
-            page, skipped = tex_page(f"{program['title']}, {title}: required courses", entries, footer)
-            pages.append(page)
-            for item in skipped:
-                print(f"  {program['name']}, {title}: time not read: {item}")
-        # Courses that could not go on any page, listed after the last page.
-        not_placed = []
-        absent = sorted(c for c in required if c[:-4] in ct.OURS and c not in ours_offered)
-        if absent:
-            not_placed.append("Required, but not on the 2027-28 course list: "
-                              + ", ".join(bc.course_display(c) for c in absent) + ".")
-        if labs_only:
-            not_placed.append("Labs with no lecture (choose a section): "
-                              + ", ".join(bc.course_display(c) for c in sorted(labs_only)) + ".")
-        if timeless:
-            not_placed.append("No set time: " + ", ".join(bc.course_display(c) for c in sorted(timeless)) + ".")
-        if not_placed:
-            pages[-1] += [rf"{{\footnotesize\itshape {' '.join(not_placed)}}}", ""]
-        output = folder / f"{program['name']}.tex"
-        output.write_text(tex_document(pages))
-        print(f"Wrote {output}")
-        compile_pdf(output, args.no_pdf)
-
-
-# ----------------------------------------------------------------------------
 # The program grids by level: a page per level per term, Required and Options
 # side by side under each day
 # ----------------------------------------------------------------------------
@@ -685,8 +607,6 @@ def main():
                         help="the proposed timetable (only read)")
     parser.add_argument("-s", "--sheet", default="Fall 2027", help='term sheet to draw (default "Fall 2027")')
     parser.add_argument("-o", "--output", help="the department grid's .tex")
-    parser.add_argument("--programs", action="store_true",
-                        help="draw one PDF per degree program instead of the department grid")
     parser.add_argument("--by-level", action="store_true",
                         help="one PDF per degree program, a page per level per term, required and options")
     parser.add_argument("--no-pdf", action="store_true", help="do not run pr-latexmk")
@@ -698,8 +618,6 @@ def main():
     proposal = ct.read_proposal(source)
     if args.by_level:
         program_level_grids(args, source, proposal)
-    elif args.programs:
-        program_grids(args, source, proposal)
     else:
         department_grid(args, source, {title: courses for title, _, courses in proposal})
 
