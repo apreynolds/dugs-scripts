@@ -227,15 +227,21 @@ def place_entries(entries):
     placed = defaultdict(list)
     skipped = []
     latest = FIRST_ROW_TIME
-    for key, time, small, italic, *column in entries:
+    for key, time, small, style, *column in entries:
         column = column[0] if column else level(key)
         options = ct.parse_options(time)
         if not options:
             skipped.append(f"{bc.course_display(key)} {time!r}")
             continue
         label = bc.course_display(key)
-        if italic:
+        # style: True or "italic" (another unit's course), "moved" (at its new
+        # time), "left" (its old slot, struck out), or False.
+        if style is True or style == "italic":
             label = rf"\textit{{{label}}}"
+        elif style == "moved":
+            label = rf"\moved{{{label}}}"
+        elif style == "left":
+            label = rf"\leftslot{{{label}}}"
         for option in options:
             for day, start, end in option:
                 if day not in dict(DAYS):
@@ -388,6 +394,12 @@ def tex_document(pages):
         "% force, so its lines use \\tiny's own close spacing.",
         r"\newcommand{\progs}[1]{{\tiny\color{black!65}#1\par}}",
         "",
+        "% With --alternatives: a moved course in red at its new time, and struck",
+        "% out in grey in the slot it left. normalem keeps \\emph as italics.",
+        r"\usepackage[normalem]{ulem}",
+        r"\newcommand{\moved}[1]{\textcolor{BrickRed}{#1}}",
+        r"\newcommand{\leftslot}[1]{\textcolor{black!45}{\sout{#1}}}",
+        "",
         r"\pagestyle{empty} % no page number",
         r"\setlength{\parindent}{0pt}",
         "",
@@ -450,17 +462,24 @@ def department_grid(args, source, terms):
         # The small grey lines under the course: whether it moved, our
         # programs, then other units.
         time, moved = our_time(record, args.alternatives)
-        small = [moved] if moved else []
+        small = []
         if programs and (ours := required_by(programs, key)):
             small.append(ours)
         if others.get(key):
             small.append("Also: " + ", ".join(UNIT_SHORT.get(u, u) for u in others[key]))
-        entries.append((key, time, small, False))
+        if moved:
+            # In red at its new time; struck out, in grey, where it was.
+            suggested = record.get("Suggested time", "")
+            entries.append((key, time, [moved] + small, "moved"))
+            entries.append((key, suggested, [f"moved to {time}"], "left"))
+        else:
+            entries.append((key, time, small, False))
 
     today = datetime.date.today().isoformat()
     if args.alternatives:
         footer = (f"Times from {source.name}, drawn {today}, with every alternative time taken: "
-                  "a course that moved says ``alternative; was'' and its suggested time. "
+                  "a course that moved is in red at its new time (``alternative; was'' its suggested "
+                  "time), and struck out in grey in the slot it left. "
                   "Tutorials are not shown. A course with sections at different times appears at each.")
     else:
         footer = (f"Suggested times from {source.name}, drawn {today}. "
