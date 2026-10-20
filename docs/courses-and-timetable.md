@@ -26,27 +26,27 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 - A course on the master list's `removed` sheet gets no row in the advising timetable, even if a degree-requirements workbook still names it; the build prints which workbook that is.
 - If the advising build fails with "Operation timed out" and "File is not a zip file", OneDrive was still syncing the workbook after a recent write. Wait a minute and run it again.
 
-## The timetable check
+## The timetable grids
 
-`check_timetable.py` checks the timetable committee's proposed timetable against the degree programs.
-It reads the term sheets of `TEAM-TIMETABLE/General/2027-28/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
-Those three are regenerated on every run; the term sheets and `Notes` are never touched.
+`timetable_grid.py YEAR` draws a year's timetable as week grids: landscape ledger PDFs, via `pr-latexmk`, with days across, each split by course level, half-hour rows, coloured by level.
+It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/General/YEAR/`, which must exist:
 
-```
-uv run --script ~/3work/dugs-scripts/check_timetable.py
-uv run --script ~/3work/dugs-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
-```
+- `departmental-grids/`: one page per term with every course of ours, and in small grey type under each the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
+- `program-grids-by-level/`: one PDF per degree program, a page per level (1000, 2000, 3000/4000) per term, each day split into Required and Options (named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script).
 
-- Rerun it after changing any time in the workbook. `-n` prints the findings without writing; `--try` tests a time that is not in the workbook.
-- A clash is reported only when no choice of sections avoids it, and is graded by how firmly the programs need both courses: Both required, Required + option, Both options, Elective, or Ours only.
-- Other units' times are last year's, since their new ones are not known yet.
-- For next year's timetable, point `-w` at the new workbook; it needs `Fall YYYY` and `Winter YYYY` sheets with `Course`, `Suggested time`, `Alternative time` and `Tutorial` columns.
+The times come from the newest export of the year in `timetable-exports-by-year`, so the routine is: download the export, then run the script.
+Four passes a year:
 
-`timetable_grid.py` draws one term sheet of the same workbook as a one-page week grid (landscape ledger PDF, via `pr-latexmk`): days across, each split by course level, half-hour rows, coloured by level, with the programs that require each course in small grey type under it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `curriculum/COURSES-required-by-other-units.md`.
-It writes `timetable-grid-fall-2027.tex` and `.pdf` beside the workbook; `-s "Winter 2028"` draws the other term.
-With `--by-level` it writes one PDF per program into `program-grids-by-level/`, a page per level (1000, 2000, 3000/4000) per term, each day split into Required and Options (named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script).
-`--alternatives`, with either, draws every course that has an Alternative time at that time, into files and folders named `-alternatives`, for comparing with the status quo.
-As each timetable decision is made, change that course's Suggested time on the term sheet and rerun: the grids always draw the sheet as it stands.
+| When | Command | What it shows |
+|---|---|---|
+| Fall | `uv run timetable_grid.py 2027-28 --draft` | Next year as a draft for the committee: this year's courses at this year's times, files named `-draft` |
+| December | `uv run timetable_grid.py 2026-27` | This year again, with any winter changes |
+| March | `uv run timetable_grid.py 2027-28` | Next year, once the registrar has released it |
+| August | `uv run timetable_grid.py 2027-28` | Next year again, nearer the start of term |
+
+- `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes.
+- `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only.
+- Whether next year's timetable reaches Informer as soon as the registrar releases it is not known yet (October 2026).
 
 ## The academic calendar
 

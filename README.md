@@ -13,14 +13,12 @@ None of the data is in this repository: it lives in the Teams folders on OneDriv
 |---|---|---|
 | `build_courses.py` | Rebuilds the master list of MATH/STAT courses, `COURSES-math-stat.xlsx` (Curriculum team) | Summer, after new Informer exports |
 | `build_advising.py` | Rebuilds the advising timetable, `advising-timetable.xlsx` (Advising team): every course our students take, with its usual slot | Right after `build_courses.py` |
-| `timetable_grid.py` | Draws a year's timetable as week grids: one for the department, one per degree program (Timetable team) | Fall (draft), December, March, August |
+| `timetable_grid.py` | Draws a year's timetable as week grids from the registrar's export: one per term for the department, one per degree program (Timetable team) | Fall (a draft of next year), December, March, August |
 | `transcript_to_tracker.py` | Turns a student's transcript into a degree-progress tracker | Whenever advising |
 | `blank_tracker.py` | An empty tracker for a degree, with no transcript | Whenever needed |
 | `mirror_calendar.py` | Saves a copy of the online undergraduate calendar | Summer, once the new calendar is up |
 | `sweep_references.py` | Finds every mention of a MATH/STAT course in that copy: who else requires our courses | Right after `mirror_calendar.py` |
 | `course_history.py` | Lists which calendar years had an entry for each MATH/STAT course | Summer, after the sweep |
-
-`check_timetable.py` is on its way out; its useful parts are moving into `timetable_grid.py`.
 
 Every script prints its options with `-h`, and starts with a comment block that explains it in full.
 

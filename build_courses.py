@@ -193,6 +193,28 @@ def section_meetings(row):
     return ", ".join(lecture), ", ".join(tutorial)
 
 
+def export_year(path):
+    """'timetable-2026-27-as-of-2026-12-01.csv' -> '2026-27', or None for another name."""
+    match = re.match(r"timetable-(\d{4}-\d{2})", Path(path).name)
+    return match[1] if match else None
+
+
+def newest_per_year(files):
+    """Of several exports of one academic year, keep only the newest, sorted by year.
+
+    A year still being scheduled is exported more than once, named with its
+    date ('timetable-2026-27-as-of-2026-10-12.csv'). Reading two of them would
+    keep a section cancelled between the two, so only the latest name counts:
+    the dates sort as text, and a bare 'timetable-2026-27.csv' sorts first.
+    Sorted by stem, without '.csv': by full name the '.' of a bare name would
+    sort after the '-' of a dated one.
+    """
+    by_year = {}
+    for file in sorted(files, key=lambda f: Path(f).stem):
+        by_year[export_year(file) or file.name] = file
+    return [by_year[year] for year in sorted(by_year)]
+
+
 def load_timetables(paths, subjects=SUBJECTS):
     """Read every timetable export and return (rows_by_course_term, covered_terms).
 
@@ -204,7 +226,7 @@ def load_timetables(paths, subjects=SUBJECTS):
     for path in paths:
         path = Path(path)
         if path.is_dir():
-            files += sorted(path.glob("timetable-*.csv"))
+            files += newest_per_year(path.glob("timetable-*.csv"))
         else:
             files.append(path)
     if not files:
