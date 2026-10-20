@@ -195,7 +195,7 @@ def main():
     # sample-transcript.pdf is a good student: every grade is A-range or CR.
     # Against a transcript like that, a Progress column that wrongly counts
     # failed courses looks exactly like a correct one — there are no failures
-    # to miscount — so trap 2 in CLAUDE.md would sail past the one step that
+    # to miscount — so trap 2 in docs/degree-tracker.md would sail past the one step that
     # actually catches it, Patrick opening the workbook. Overwriting a few
     # grades here gives that step something to disagree about:
     #

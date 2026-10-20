@@ -26,7 +26,7 @@
 #      alarm the change exists to remove.
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
-# conditional formatting. See "Verifying a change" in CLAUDE.md.
+# conditional formatting. See "Verifying a change" in docs/degree-tracker.md.
 
 import re
 import subprocess

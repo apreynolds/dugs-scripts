@@ -662,7 +662,7 @@ def report(clash_rows, alternative_rows, unreadable, no_time):
 
 def about_sheet(sheet, today, args, tt_files, terms, programs):
     about = [
-        ("Built", f"{today} by check_timetable.py, in ~/3work/course-scripts"),
+        ("Built", f"{today} by check_timetable.py, in ~/3work/dugs-scripts"),
         ("Not to be edited", "The three 'Check - ...' sheets are regenerated on every run, and anything "
                              "typed in them is lost. The term sheets and Notes are never touched."),
         ("Programs read", ", ".join(p["name"] for p in programs) + f", from {args.requirements}"),

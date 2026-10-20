@@ -1,4 +1,4 @@
-# advising-scripts
+# Degree tracker
 
 Turns a student's transcript PDF into a degree-progress tracker spreadsheet,
 and keeps it current year after year. Built for UNB math degrees; the degree
@@ -15,7 +15,7 @@ it, the invariants, the traps, and how to verify a change.
 ```bash
 cd ~/Documents/3work/TEAM-Advising
 
-uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
     -r degree-requirements/bsc-math-2020.xlsx \
     -o student-records/NAME/tracker.xlsx -t Honours
@@ -45,7 +45,7 @@ courses come from the transcript; the `Cat.`, `Ovr.`, `Notes` and GPA flags
 already entered are preserved.
 
 ```bash
-uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
     -r degree-requirements/bsc-math-2020.xlsx \
     -u student-records/NAME/tracker.xlsx
@@ -81,7 +81,7 @@ uv run transcript_to_tracker.py --dump-text transcript.pdf
 ### An ad hoc tracker, with no degree requirements
 
 ```bash
-uv run ~/3work/advising-scripts/transcript_to_tracker.py \
+uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf --ad-hoc \
     -o student-records/NAME/NAME-adhoc.xlsx
 ```
@@ -108,7 +108,7 @@ parser — and for looking at the generated workbook with the PDF side of the
 pipeline out of the picture:
 
 ```bash
-uv run ~/3work/advising-scripts/blank_tracker.py \
+uv run ~/3work/dugs-scripts/blank_tracker.py \
     -r degree-requirements/bsc-math-2020.xlsx \
     -o student-records/NAME/tracker.xlsx -t Honours \
     -n "Last, First" --id 1234567
@@ -129,9 +129,9 @@ It is not a second-class tracker: rows typed into it read back through
 `-u` and merged with a real transcript. Only openpyxl is needed, no pdfplumber
 — a colleague can run it without the PDF stack.
 
-`uv` puts the script's own directory on `sys.path`, so the sibling imports
-resolve inside the repo while the working directory stays wherever the data
-is. Only the paths typed as *arguments* are relative to the shell.
+Each script puts the `lib/` folder beside it on `sys.path`, so the helper
+imports resolve inside the repo while the working directory stays wherever the
+data is. Only the paths typed as *arguments* are relative to the shell.
 
 ---
 
@@ -140,7 +140,7 @@ is. Only the paths typed as *arguments* are relative to the shell.
 - **Never commit a `.pdf` or an `.xlsx`.** A transcript is a student record;
   the trackers are all generated. `.gitignore` enforces this.
 
-  The single exception is `sample-transcript.pdf`, the anonymized fixture the
+  The single exception is `checks/sample-transcript.pdf`, the anonymized fixture the
   checks run on — its student is "Last, First", number `1234567`, born
   `MM/YY`. Do not add a second exception.
 
@@ -151,10 +151,10 @@ is. Only the paths typed as *arguments* are relative to the shell.
 
 - **The requirements workbooks are not tracked here.** They live in
   `TEAM-Advising/degree-requirements/`, are maintained by hand in Excel, and reach
-  the pipeline through `-r`. The `requirements/*.tsv` in this repo is a *test
+  the pipeline through `-r`. The `checks/requirements/*.tsv` is a *test
   fixture only* — text so it is readable in a diff.
 
-- **No shell-outs, no system dependencies, `pathlib` for paths.** Dependencies
+- **No shell-outs, no system dependencies, `pathlib` for paths** (in the tracker; some course scripts call `pdftotext` or `pr-latexmk`). Dependencies
   go in each script's PEP 723 inline block so `uv run` resolves them anywhere.
 
 ---
@@ -177,12 +177,12 @@ with an empty row list, so there is no second generator to keep in step.
 |---|---|
 | `transcript_to_tracker.py` | CLI, and the merge logic |
 | `blank_tracker.py` | CLI for an empty tracker: requirements in, no transcript |
-| `transcript_parser.py` | PDF → course rows. **Change here for a new transcript format.** |
-| `requirements_io.py` | load + validate a requirements workbook |
-| `tracker_writer.py` | generate the tracker; every Excel formula lives here |
-| `checkbox_xlsx.py` | post-process the saved .xlsx into native Excel checkboxes; the only place that touches raw OOXML |
-| `tracker_reader.py` | read an existing tracker back as data. **The one place that assumes the requirements block's geometry** — `col_category + 3` for the constraint ticks — and it fails silently, so `col_progress` must not move |
-| `check_support.py` | shared setup for the checks, incl. the fixture `.tsv` → workbook builder |
+| `lib/transcript_parser.py` | PDF → course rows. **Change here for a new transcript format.** |
+| `lib/requirements_io.py` | load + validate a requirements workbook |
+| `lib/tracker_writer.py` | generate the tracker; every Excel formula lives here |
+| `lib/checkbox_xlsx.py` | post-process the saved .xlsx into native Excel checkboxes; the only place that touches raw OOXML |
+| `lib/tracker_reader.py` | read an existing tracker back as data. **The one place that assumes the requirements block's geometry** — `col_category + 3` for the constraint ticks — and it fails silently, so `col_progress` must not move |
+| `checks/check_support.py` | shared setup for the checks, incl. the fixture `.tsv` → workbook builder |
 
 ### Invariants — don't break these
 
@@ -582,13 +582,14 @@ pass for a working assertion.
 ## Verifying a change
 
 ```bash
+cd ~/3work/dugs-scripts/checks
 for c in check_requirements check_merge check_two_editions check_formulas \
          check_blank check_passing_grades check_checkboxes check_no_target \
          check_no_credit check_adhoc check_planned; do
     echo "### $c"; uv run $c.py; done
 ```
 
-The checks build their own inputs from the fixtures the repo carries —
+The checks build their own inputs from the fixtures in `checks/` —
 `sample-transcript.pdf`, `requirements/bsc-math-2020.tsv` and
 `requirements/ba-math-2020.tsv` — into scratch directories, so they run from a
 bare clone with nothing else present.

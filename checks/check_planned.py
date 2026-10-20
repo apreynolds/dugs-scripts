@@ -36,7 +36,7 @@
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
 # conditional formatting or structured table references. See "Verifying a
-# change" in CLAUDE.md.
+# change" in docs/degree-tracker.md.
 
 import re
 import subprocess
@@ -410,7 +410,7 @@ def check_mutations(work, tracker, failures):
     """Delete each guard from a real workbook, confirm the check notices.
 
     The assertions above are only worth having if they can fail. Both Excel
-    traps in CLAUDE.md shipped in code that passed every structural check and
+    traps in docs/degree-tracker.md shipped in code that passed every structural check and
     produced well-formed XML, so a guard nobody has watched fail is a guard
     nobody knows works.
 

@@ -33,7 +33,7 @@
 #      "excl." row hides an exception the advisor made on purpose.
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
-# conditional formatting. See "Verifying a change" in CLAUDE.md — and note
+# conditional formatting. See "Verifying a change" in docs/degree-tracker.md — and note
 # that check_formulas.py plants an F, a W, a bare D, a D + incl., an F + incl.
 # and a B + incl. into its tracker, which is exactly the set of rows this rule
 # has to get right. That workbook is the one to open.

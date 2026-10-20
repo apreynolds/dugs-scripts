@@ -1,4 +1,4 @@
-# course-scripts
+# Courses, calendar and timetable
 
 Scripts behind the department's course records, kept by Patrick Reynolds (DUGS, Mathematics and Statistics, UNB) with Claude Code.
 The data they read and write is not in this repository; it lives in `~/Documents/3work/WIP-DUGS-related/curriculum` and `~/Documents/3work/TEAM-Advising`.
@@ -16,7 +16,7 @@ Each one starts with a comment block that explains it in more detail than this f
 The routine rebuild, master list first because the advising timetable reads it:
 
 ```
-uv run --script ~/3work/course-scripts/build_courses.py && uv run --script ~/3work/course-scripts/build_advising.py
+uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work/dugs-scripts/build_advising.py
 ```
 
 - Columns with yellow headers are typed by a person and carried across every rebuild; everything else is regenerated.
@@ -33,8 +33,8 @@ It reads the term sheets of `timetable-committee/proposed-timetable-2027-28.xlsx
 Those three are regenerated on every run; the term sheets and `Notes` are never touched.
 
 ```
-uv run --script ~/3work/course-scripts/check_timetable.py
-uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
+uv run --script ~/3work/dugs-scripts/check_timetable.py
+uv run --script ~/3work/dugs-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
 ```
 
 - Rerun it after changing any time in the workbook. `-n` prints the findings without writing; `--try` tests a time that is not in the workbook.
@@ -70,13 +70,13 @@ The three files `sweep_references.py` writes:
 Once the new calendar is online (it has appeared at the "current" address each summer):
 
 1. Mirror it into a new year folder:
-   `uv run --script ~/3work/course-scripts/mirror_calendar.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/mirror_calendar.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
 2. Sweep it:
-   `uv run --script ~/3work/course-scripts/sweep_references.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/sweep_references.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
 3. Compare the three `sweep-*.tsv` files with last year's. Only the differences need reading.
    There is no script for this comparison yet.
 4. Update `curriculum/COURSES-required-by-other-units.md`, the department's reference for which unit requires which of our courses, and change the calendar year in its subtitle and its date.
-5. Rebuild the course history, `uv run --script ~/3work/course-scripts/course_history.py`, and add any course that has dropped out of the calendar to the master list's `removed` sheet, with its last calendar year and the reason.
+5. Rebuild the course history, `uv run --script ~/3work/dugs-scripts/course_history.py`, and add any course that has dropped out of the calendar to the master list's `removed` sheet, with its last calendar year and the reason.
 6. Put wording that ought to be corrected into the proposed-changes file for the relevant year under `academic-calendar`, not into the reference document.
 
 ## Things to know before trusting the output

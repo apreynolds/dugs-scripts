@@ -78,7 +78,7 @@ def main():
                                 "counts as first-year science", True)
 
     # An Ovr. that moves a course out of its auto-assigned category — the
-    # CS 1003 / CS 1073 case in CLAUDE.md's "looks like a bug but isn't".
+    # CS 1003 / CS 1073 case in docs/degree-tracker.md's "looks like a bug but isn't".
     sheet.cell(row=row_b, column=col["Ovr."], value="excl.")
     sheet.cell(row=row_b, column=col["Cat. 2020"], value="FreeElec")
     edits[(term_b, course_b)] = ("FreeElec", "excl.", "", False)
@@ -191,7 +191,7 @@ def main():
 
     # A RETAKE: the same course code in a different term. The merge key is
     # (term, course), so this must stay a second row rather than collapsing
-    # into the original — see invariant 2 in CLAUDE.md. The fixture transcript
+    # into the original — see invariant 2 in docs/degree-tracker.md. The fixture transcript
     # has no repeated course, so the case has to be planted.
     retake_row = first_blank + 1
     sheet.cell(row=retake_row, column=col["Term"], value="2027-1W")

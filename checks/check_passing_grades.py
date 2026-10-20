@@ -22,7 +22,7 @@
 # structured table references (Courses[Pass]). So this checks the inputs to
 # the formula — the bars written into the sheet, and the shape of the lookup —
 # and the Python model in check_expected_values that Patrick's manual
-# comparison is measured against. See "Verifying a change" in CLAUDE.md.
+# comparison is measured against. See "Verifying a change" in docs/degree-tracker.md.
 
 import subprocess
 import sys
