@@ -36,7 +36,7 @@
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
 # conditional formatting or structured table references. See "Verifying a
-# change" in CLAUDE.md.
+# change" in docs/degree-tracker.md.
 
 import re
 import subprocess
@@ -45,6 +45,10 @@ import zipfile
 from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import check_expected_values as expected
 import check_support
@@ -88,7 +92,7 @@ def build_tracker(work, failures):
     requirements = check_support.sample_requirements(work)
     tracker = work / "tracker.xlsx"
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()),
          "-r", str(requirements), "-o", str(tracker), "-t", "Honours"],
         capture_output=True, text=True,
@@ -406,7 +410,7 @@ def check_mutations(work, tracker, failures):
     """Delete each guard from a real workbook, confirm the check notices.
 
     The assertions above are only worth having if they can fail. Both Excel
-    traps in CLAUDE.md shipped in code that passed every structural check and
+    traps in docs/degree-tracker.md shipped in code that passed every structural check and
     produced well-formed XML, so a guard nobody has watched fail is a guard
     nobody knows works.
 

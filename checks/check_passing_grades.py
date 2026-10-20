@@ -22,13 +22,17 @@
 # structured table references (Courses[Pass]). So this checks the inputs to
 # the formula — the bars written into the sheet, and the shape of the lookup —
 # and the Python model in check_expected_values that Patrick's manual
-# comparison is measured against. See "Verifying a change" in CLAUDE.md.
+# comparison is measured against. See "Verifying a change" in docs/degree-tracker.md.
 
 import subprocess
 import sys
 from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import check_expected_values as expected
 import check_support
@@ -159,7 +163,7 @@ def check_tracker(work, ba, failures):
 
     tracker = work / "ba-tracker.xlsx"
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()),
          "-r", str(work / "ba-math-2020.xlsx"),
          "-o", str(tracker), "-t", "Honours"],

@@ -28,8 +28,13 @@
 import re
 import sys
 import zipfile
+from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import blank_tracker
 import check_support
@@ -267,7 +272,7 @@ def main():
     openpyxl.load_workbook(str(with_boxes)).save(str(round_tripped))
     if checkbox_xlsx.FEATURE_BAG_PART in part_names(round_tripped):
         print("   note: openpyxl now PRESERVES the part — the warning in "
-              "CLAUDE.md can be softened")
+              "docs/degree-tracker.md can be softened")
     else:
         print("   OK  confirmed: re-saving with openpyxl strips them, so "
               "never read-modify-write a tracker")

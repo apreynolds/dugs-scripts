@@ -30,6 +30,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import check_expected_values as expected
 import check_support
 import requirements_io
@@ -129,7 +133,7 @@ def main():
     tracker = WORK / "tracker.xlsx"
 
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"), str(PDF),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"), str(PDF),
          "-r", str(REQ), "-o", str(tracker), "-t", "Honours"],
         capture_output=True, text=True,
     )
@@ -191,7 +195,7 @@ def main():
     # sample-transcript.pdf is a good student: every grade is A-range or CR.
     # Against a transcript like that, a Progress column that wrongly counts
     # failed courses looks exactly like a correct one — there are no failures
-    # to miscount — so trap 2 in CLAUDE.md would sail past the one step that
+    # to miscount — so trap 2 in docs/degree-tracker.md would sail past the one step that
     # actually catches it, Patrick opening the workbook. Overwriting a few
     # grades here gives that step something to disagree about:
     #

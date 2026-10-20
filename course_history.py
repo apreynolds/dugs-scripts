@@ -8,7 +8,7 @@
 #   ./course_history.py --root DIR --out FILE.tsv
 #   ./course_history.py -h | --help
 #
-#   --root   the academic-calendar folder (default: ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar)
+#   --root   the academic-calendar folder (default: CALENDAR in lib/paths.py)
 #   --out    the file to write (default: ROOT/course-history.tsv)
 #
 # It reads, for the Fredericton campus only:
@@ -34,6 +34,11 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+# The helper modules live in lib/, beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+
+import paths
 
 SUBJECTS = ("MATH", "STAT", "DATA")
 CODE = r"(MATH|STAT|DATA)\s?(\d{4})"
@@ -151,7 +156,7 @@ def from_mirror(text_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Which calendar years had an entry for each MATH/STAT course.")
-    parser.add_argument("--root", default=str(Path.home() / "Documents/3work/WIP-DUGS-related/curriculum/academic-calendar"))
+    parser.add_argument("--root", default=str(paths.CALENDAR))
     parser.add_argument("--out")
     args = parser.parse_args()
     root = Path(args.root).expanduser()

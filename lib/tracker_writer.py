@@ -157,7 +157,7 @@ OFF_FONT = Font(color="FF7F7F7F", strike=True)
 # The two say the same thing in the two halves of the sheet: struck-out grey
 # TEXT means "this does not count towards the degree". What stays unique to
 # the requirements block is the grey FILL, which still means "not on this
-# track" and nothing else — so the rule in CLAUDE.md is about OFF_FILL, and
+# track" and nothing else — so the rule in docs/degree-tracker.md is about OFF_FILL, and
 # this rule adds no new colour to the workbook.
 NO_CREDIT_FONT = Font(color="FF7F7F7F", strike=True)
 
@@ -769,7 +769,7 @@ def build_tracker(path, requirement_sets, rows, student,
     # Progress SUMPRODUCT. MATCH does not broadcast: handed a whole column as
     # its lookup value it collapses to one scalar, and every row would then be
     # measured against row 6's threshold — silently. That is trap 2 in
-    # CLAUDE.md wearing a different hat.
+    # docs/degree-tracker.md wearing a different hat.
     #
     # With two editions the first one wins. Two editions normally means two
     # calendar years of one degree, whose bars agree. A BA block beside a BSc

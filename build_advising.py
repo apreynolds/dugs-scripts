@@ -10,9 +10,9 @@
 #   ./build_advising.py -h | --help
 #
 #   -o, --output        workbook to write (default: advising-timetable.xlsx in
-#                       TEAM-Advising/resources). Always written from scratch.
-#                       A file already there is first copied, with the date
-#                       and time in its name, into a zzzzz folder. Refuses to
+#                       TEAM-ADVISING/resources). Always written from scratch.
+#                       A file already there is first copied beside it as
+#                       NAME-bak.xlsx, replacing the last one. Refuses to
 #                       run while the workbook is open in Excel
 #   -p, --previous      workbook read ONLY for the typed columns (default: the
 #                       output workbook itself, if it exists)
@@ -61,15 +61,15 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
 
-import build_courses as bc
+import build_courses as bc  # also puts lib/ on sys.path
+import paths
 
 # ----------------------------------------------------------------------------
-# Defaults
+# Defaults, from lib/paths.py
 # ----------------------------------------------------------------------------
-ADVISING = Path.home() / "Documents/3work/TEAM-Advising"
-DEFAULT_OUTPUT = ADVISING / "resources/advising-timetable.xlsx"
-DEFAULT_REQUIREMENTS = ADVISING / "degree-requirements"
-DEFAULT_MASTER = bc.DEFAULT_OUTPUT
+DEFAULT_OUTPUT = paths.ADVISING_TIMETABLE
+DEFAULT_REQUIREMENTS = paths.REQUIREMENTS
+DEFAULT_MASTER = paths.MASTER_LIST
 
 # Courses put on the list the first time the workbook is created, because
 # Patrick named them as common electives. After that the list is his.

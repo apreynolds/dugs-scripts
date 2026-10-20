@@ -12,8 +12,8 @@
 #
 #   -o, --output      workbook to write (default: COURSES-math-stat.xlsx in
 #                     the curriculum folder). Always written from scratch. A
-#                     file already there is first copied, with the date and
-#                     time in its name, into the zzzzz folder beside it.
+#                     file already there is first copied beside it as
+#                     NAME-bak.xlsx, replacing the last one.
 #                     Refuses to run while the workbook is open in Excel
 #   -p, --previous    workbook read ONLY for the columns a person typed
 #                     (status, notes, ...) and the calendar text (default: the
@@ -29,7 +29,7 @@
 #                     output (default: the newest one that has it)
 #
 # With no -p/-t/-s the defaults near the top of this file are used; they point
-# at Patrick's curriculum and timetable-committee folders.
+# at the team folders named in lib/paths.py.
 #
 # WHAT THIS IS FOR
 # The master list has two kinds of column. Most can be worked out from the
@@ -74,19 +74,21 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+# The helper modules live in lib/, beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+
+import paths
+
 # ----------------------------------------------------------------------------
-# Defaults. The data lives outside this repository, on purpose.
+# Defaults. The data lives outside this repository, on purpose; lib/paths.py
+# says where.
 # ----------------------------------------------------------------------------
-DUGS = Path.home() / "Documents/3work/WIP-DUGS-related"
-DEFAULT_TIMETABLES = [
-    DUGS / "timetable-committee/past-timetables-by-year",
-    DUGS / "timetable-committee",  # holds the current year's dated snapshot
-]
-DEFAULT_SUMMARIES = DUGS / "curriculum/informer5-course-summaries"
-DEFAULT_OUTPUT = DUGS / "curriculum/COURSES-math-stat.xlsx"
+DEFAULT_TIMETABLES = [paths.TIMETABLE_EXPORTS]
+DEFAULT_SUMMARIES = paths.COURSE_SUMMARIES
+DEFAULT_OUTPUT = paths.MASTER_LIST
 # sweep_references.py writes its results into each calendar year's folder;
 # the newest year that has them is used for "Required by others".
-CALENDAR_DIR = DUGS / "curriculum/academic-calendar"
+CALENDAR_DIR = paths.CALENDAR
 
 # Subjects that belong on the list, in the order they are sorted.
 SUBJECTS = ["MATH", "STAT", "DATA"]
@@ -960,18 +962,13 @@ def backup_existing(output):
     """Copy the workbook about to be overwritten, and return where the copy went.
 
     The workbook holds typed columns that exist nowhere else, so it is never
-    overwritten without a dated copy. The copy goes in a 'zzzzz' folder
-    (Patrick's archive folders) beside it or one level up, else right beside it.
+    overwritten without a copy. There is one copy, NAME-bak.xlsx right beside
+    it where it will not be forgotten, replaced at every run; anything older
+    is in OneDrive's version history.
     """
     if not output.exists():
         return None
-    folder = output.parent
-    for archive in (output.parent / "zzzzz", output.parent.parent / "zzzzz"):
-        if archive.is_dir():
-            folder = archive
-            break
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    backup = folder / f"{output.stem}_{stamp}{output.suffix}"
+    backup = output.with_name(f"{output.stem}-bak{output.suffix}")
     shutil.copy2(output, backup)  # copy2 keeps the file's modified date
     return backup
 

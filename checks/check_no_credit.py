@@ -33,7 +33,7 @@
 #      "excl." row hides an exception the advisor made on purpose.
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
-# conditional formatting. See "Verifying a change" in CLAUDE.md — and note
+# conditional formatting. See "Verifying a change" in docs/degree-tracker.md — and note
 # that check_formulas.py plants an F, a W, a bare D, a D + incl., an F + incl.
 # and a B + incl. into its tracker, which is exactly the set of rows this rule
 # has to get right. That workbook is the one to open.
@@ -45,6 +45,10 @@ import zipfile
 from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import check_expected_values as expected
 import check_support
@@ -103,7 +107,7 @@ def build(work, name, args):
     """Generate a tracker and return its path, or None on failure."""
     tracker = work / name
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()), "-o", str(tracker)] + args,
         capture_output=True, text=True,
     )

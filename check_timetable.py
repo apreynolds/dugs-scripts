@@ -10,10 +10,10 @@
 #   ./check_timetable.py -h | --help
 #
 #   -w, --workbook      the proposed timetable (default: proposed-timetable-2027-28.xlsx
-#                       in timetable-committee). Its "Fall YYYY" and "Winter YYYY"
+#                       in the Timetable team's 2027-28 folder). Its "Fall YYYY" and "Winter YYYY"
 #                       sheets are read; only the three "Check - ..." sheets are
-#                       written, replacing the ones from the last run. A dated
-#                       copy of the workbook goes into a zzzzz folder first.
+#                       written, replacing the ones from the last run. A copy
+#                       of the workbook goes beside it as NAME-bak.xlsx first.
 #                       Refuses to run while the workbook is open in Excel
 #   -r, --requirements  folder of degree-requirements workbooks
 #   -a, --advising      the advising timetable, read only for its Other numbers
@@ -79,12 +79,13 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
 import build_advising as ba
-import build_courses as bc
+import build_courses as bc  # also puts lib/ on sys.path
+import paths
 
 # ----------------------------------------------------------------------------
 # Defaults
 # ----------------------------------------------------------------------------
-DEFAULT_WORKBOOK = bc.DUGS / "timetable-committee/proposed-timetable-2027-28.xlsx"
+DEFAULT_WORKBOOK = paths.TIMETABLE / "2027-28/proposed-timetable-2027-28.xlsx"
 
 OURS = ("MATH", "STAT", "DATA")
 
@@ -662,7 +663,7 @@ def report(clash_rows, alternative_rows, unreadable, no_time):
 
 def about_sheet(sheet, today, args, tt_files, terms, programs):
     about = [
-        ("Built", f"{today} by check_timetable.py, in ~/3work/course-scripts"),
+        ("Built", f"{today} by check_timetable.py, in ~/3work/dugs-scripts"),
         ("Not to be edited", "The three 'Check - ...' sheets are regenerated on every run, and anything "
                              "typed in them is lost. The term sheets and Notes are never touched."),
         ("Programs read", ", ".join(p["name"] for p in programs) + f", from {args.requirements}"),

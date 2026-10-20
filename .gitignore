@@ -1,7 +1,8 @@
-# Spreadsheets are generated or maintained elsewhere, never tracked. The
-# degree-requirements workbooks live in the advising data folder, by hand.
+# Spreadsheets and Informer exports are data, kept in the team folders on
+# OneDrive, never tracked here.
 *.xlsx
 *.xls
+*.csv
 
 # Excel lock files
 ~$*
@@ -14,8 +15,8 @@ result.csv
 
 # The one exception: an anonymized sample used as the checks' fixture. Its
 # name is "Last, First", its student number 1234567, its date of birth MM/YY.
-# See CLAUDE.md before adding any other exception here.
-!sample-transcript.pdf
+# See docs/degree-tracker.md before adding any other exception here.
+!checks/sample-transcript.pdf
 
 # Scratch directories the checks create for themselves
 _*_test/

@@ -26,7 +26,7 @@
 #      alarm the change exists to remove.
 #
 # What this canNOT check is whether Excel agrees. Nothing offline evaluates
-# conditional formatting. See "Verifying a change" in CLAUDE.md.
+# conditional formatting. See "Verifying a change" in docs/degree-tracker.md.
 
 import re
 import subprocess
@@ -35,6 +35,10 @@ import zipfile
 from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import check_support
 import requirements_io
@@ -185,7 +189,7 @@ def _load_capturing_stderr(path):
     """
     result = subprocess.run(
         [sys.executable, "-c",
-         "import sys; sys.path.insert(0, " + repr(str(HERE)) + "); "
+         "import sys; sys.path.insert(0, " + repr(str(REPO / "lib")) + "); "
          "import requirements_io; "
          "requirements_io.load_requirements(" + repr(str(path)) + ")"],
         capture_output=True, text=True,
@@ -200,7 +204,7 @@ def check_tracker(work, failures):
 
     tracker = work / "tracker.xlsx"
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()),
          "-r", str(work / "bsc-math-2020.xlsx"),
          "-o", str(tracker), "-t", "Honours"],

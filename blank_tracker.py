@@ -51,6 +51,9 @@ import argparse
 import sys
 from pathlib import Path
 
+# The helper modules live in lib/, beside this script.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+
 import requirements_io
 import tracker_writer
 

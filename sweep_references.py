@@ -5,7 +5,7 @@
 # sweep_references.py — find every mention of a MATH/STAT course in a mirrored calendar.
 # Usage:
 #   ./sweep_references.py YEARDIR
-#       e.g. ./sweep_references.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2026-27
+#       e.g. ./sweep_references.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2026-27"
 #   ./sweep_references.py YEARDIR --subjects MATH STAT DATA
 #   ./sweep_references.py -h | --help
 #

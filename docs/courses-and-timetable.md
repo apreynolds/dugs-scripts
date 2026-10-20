@@ -1,7 +1,7 @@
-# course-scripts
+# Courses, calendar and timetable
 
 Scripts behind the department's course records, kept by Patrick Reynolds (DUGS, Mathematics and Statistics, UNB) with Claude Code.
-The data they read and write is not in this repository; it lives in `~/Documents/3work/WIP-DUGS-related/curriculum` and `~/Documents/3work/TEAM-Advising`.
+The data they read and write is not in this repository; it lives in the team folders on OneDrive, which `lib/paths.py` names.
 
 Every script is run with `uv run --script NAME.py`, and prints its options with `-h`.
 Each one starts with a comment block that explains it in more detail than this file does.
@@ -11,17 +11,17 @@ Each one starts with a comment block that explains it in more detail than this f
 | Script | Reads | Writes |
 |---|---|---|
 | `build_courses.py` | The Informer exports, and the typed columns of the workbook it is about to replace | `curriculum/COURSES-math-stat.xlsx`, the master course list |
-| `build_advising.py` | The master list, the degree-requirements workbooks, the timetable exports | `TEAM-Advising/resources/advising-timetable.xlsx` |
+| `build_advising.py` | The master list, the degree-requirements workbooks, the timetable exports | `TEAM-ADVISING/resources/advising-timetable.xlsx` |
 
 The routine rebuild, master list first because the advising timetable reads it:
 
 ```
-uv run --script ~/3work/course-scripts/build_courses.py && uv run --script ~/3work/course-scripts/build_advising.py
+uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work/dugs-scripts/build_advising.py
 ```
 
 - Columns with yellow headers are typed by a person and carried across every rebuild; everything else is regenerated.
 - Both scripts refuse to run while their workbook is open in Excel.
-- Each rebuild keeps a dated copy of the workbook it replaced in a `zzzzz` folder beside it.
+- Each rebuild first copies the workbook it replaces to `NAME-bak.xlsx` beside it, replacing the last such copy; older versions are in OneDrive's version history.
 - The master list's `Required by others` column is generated from the newest calendar sweep (see below): the units whose calendar text names the course. If the build lists a program page with no unit, add a rule for it to `PAGE_UNITS` in `build_courses.py`.
 - A course on the master list's `removed` sheet gets no row in the advising timetable, even if a degree-requirements workbook still names it; the build prints which workbook that is.
 - If the advising build fails with "Operation timed out" and "File is not a zip file", OneDrive was still syncing the workbook after a recent write. Wait a minute and run it again.
@@ -29,12 +29,12 @@ uv run --script ~/3work/course-scripts/build_courses.py && uv run --script ~/3wo
 ## The timetable check
 
 `check_timetable.py` checks the timetable committee's proposed timetable against the degree programs.
-It reads the term sheets of `timetable-committee/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
+It reads the term sheets of `TEAM-TIMETABLE/General/2027-28/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
 Those three are regenerated on every run; the term sheets and `Notes` are never touched.
 
 ```
-uv run --script ~/3work/course-scripts/check_timetable.py
-uv run --script ~/3work/course-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
+uv run --script ~/3work/dugs-scripts/check_timetable.py
+uv run --script ~/3work/dugs-scripts/check_timetable.py -n --try "MATH 3213=TTh 1:00-2:20"
 ```
 
 - Rerun it after changing any time in the workbook. `-n` prints the findings without writing; `--try` tests a time that is not in the workbook.
@@ -70,13 +70,13 @@ The three files `sweep_references.py` writes:
 Once the new calendar is online (it has appeared at the "current" address each summer):
 
 1. Mirror it into a new year folder:
-   `uv run --script ~/3work/course-scripts/mirror_calendar.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/mirror_calendar.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"`
 2. Sweep it:
-   `uv run --script ~/3work/course-scripts/sweep_references.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/sweep_references.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"`
 3. Compare the three `sweep-*.tsv` files with last year's. Only the differences need reading.
    There is no script for this comparison yet.
 4. Update `curriculum/COURSES-required-by-other-units.md`, the department's reference for which unit requires which of our courses, and change the calendar year in its subtitle and its date.
-5. Rebuild the course history, `uv run --script ~/3work/course-scripts/course_history.py`, and add any course that has dropped out of the calendar to the master list's `removed` sheet, with its last calendar year and the reason.
+5. Rebuild the course history, `uv run --script ~/3work/dugs-scripts/course_history.py`, and add any course that has dropped out of the calendar to the master list's `removed` sheet, with its last calendar year and the reason.
 6. Put wording that ought to be corrected into the proposed-changes file for the relevant year under `academic-calendar`, not into the reference document.
 
 ## Things to know before trusting the output
