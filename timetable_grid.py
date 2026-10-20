@@ -2,31 +2,47 @@
 # /// script
 # dependencies = ["openpyxl"]
 # ///
-# timetable_grid.py — draw the proposed timetable as week grids (PDF).
+# timetable_grid.py — draw a year's timetable as week grids (PDF).
 # Usage:
-#   ./timetable_grid.py                     department grid, Fall 2027 -> timetable-grid-fall-2027.pdf
-#   ./timetable_grid.py -s "Winter 2028"    department grid for another term sheet
-#   ./timetable_grid.py --by-level          one PDF per degree program, a page per level per term
-#   ./timetable_grid.py --alternatives      either of those, with every alternative time taken
-#   ./timetable_grid.py -o OUT.tex          write the department grid's LaTeX somewhere else
-#   ./timetable_grid.py --no-pdf            write the .tex only
+#   ./timetable_grid.py 2026-27                  2026-27 as the registrar's export has it
+#   ./timetable_grid.py 2027-28 --draft          2027-28 as a draft: 2026-27's courses and times
+#   ./timetable_grid.py 2027-28 --proposal WORKBOOK [--alternatives]
+#                                                our times from a proposed timetable workbook
+#   ./timetable_grid.py 2026-27 --only programs  only the program grids (or: --only department)
+#   ./timetable_grid.py 2026-27 --no-pdf         write the .tex only
 #   ./timetable_grid.py -h | --help
 #
-#   -w, --workbook   the proposed timetable (default: proposed-timetable-2027-28.xlsx
-#                    in the Timetable team's 2027-28 folder). Only read
-#   -s, --sheet      the term sheet for the department grid (default: "Fall 2027")
-#   -o, --output     the department grid's .tex (default: timetable-grid-<sheet>.tex
-#                    beside the proposed timetable)
-#       --by-level   instead, draw each degree-requirements workbook's courses,
-#                    a page per level per term sheet, into
-#                    program-grids-by-level/<program>.tex beside the proposed timetable
-#       --alternatives  draw each course that has an Alternative time at that
-#                    time instead of its Suggested one, marked "alternative; was
-#                    ...". Written beside the usual output, with "-alternatives"
-#                    in the name, so the two can be compared
-#       --no-pdf     do not run pr-latexmk afterwards
-#       --no-programs  department grid: leave out the programs under each course
+#   YEAR            the academic year to draw. Everything is written into the
+#                   Timetable team's folder for that year, which must exist:
+#                     YEAR/departmental-grids/timetable-grid-fall-2026.tex (and winter)
+#                     YEAR/program-grids-by-level/<program>.tex
+#                   each compiled to a PDF beside it with pr-latexmk.
+#   --draft         use LAST year's export: every course of ours at the time it
+#                   had then. For the timetable committee in the fall, before
+#                   anything is decided. Files are named with "-draft"
+#   --proposal WB   take our courses and times from the "Course" and "Suggested
+#                   time" columns of a workbook's "Fall YYYY" and "Winter YYYY"
+#                   sheets (the committee's working timetable). Files are named
+#                   with "-proposed"
+#   --alternatives  with --proposal: draw each course that has an "Alternative
+#                   time" there instead, struck out in grey where it was and in
+#                   red where it goes. Files get "-alternatives" in the name
+#   --only KIND     draw only the department grids or only the program grids
+#   --no-pdf        do not run pr-latexmk afterwards
 # Every .tex is overwritten each run: it is output, and nothing in it is typed.
+#
+# WHEN
+# Four times a year: in the fall, a --draft of next year for the committee;
+# in December, this year again for any winter changes; in March, next year
+# once the registrar has released it; in August, next year again. Each time
+# download the new export into timetable-exports-by-year first.
+#
+# WHERE THE TIMES COME FROM
+# The newest export of the year (lib/paths.py: TIMETABLE_EXPORTS). Our
+# courses: every MATH/STAT/DATA course with an in-person lecture, at its
+# lecture times. Other units' courses: their times in the same term. With
+# --proposal, whose year has no export yet, other units' courses are at the
+# time they had the last time they ran in person in that season, and say so.
 #
 # WHAT THIS IS FOR
 # A one-page picture of a term: Monday to Friday across the top, each day
@@ -38,39 +54,37 @@
 # default fonts (the Libertinus block of the `basicdoc` snippet).
 #
 # THE DEPARTMENT GRID
-# Every course on the term sheet, at its suggested time. Under each course,
-# very small: our degree programs that require it, as check_timetable.py reads
+# Every course of ours in the term, one PDF per term. Under each course,
+# very small: our degree programs that require it, as lib/programs.py reads
 # the requirements workbooks ("Hons:" for Honours only), then "Also:" and the
 # other units with a program that requires it, from the "Required, by course"
-# table of curriculum/COURSES-required-by-other-units.md. A course that is one
-# choice among several is not marked. --no-programs leaves both out.
+# table of COURSES-required-by-other-units.md. A course that is one choice
+# among several is not marked.
 #
 # THE PROGRAM GRIDS BY LEVEL
 # For each degree-requirements workbook, a page per level (1000, 2000,
-# 3000/4000) per term sheet, each day split into Required and Options:
-#   - our courses at their suggested time; one running in 2027-28 in the other
-#     term is left off; one not running in 2027-28 at all sits where it last
-#     sat in this term, marked "not in 2027-28"
+# 3000/4000) per term, each day split into Required and Options:
+#   - our courses at their time; one running this year in the other term is
+#     left off; one not running this year at all sits where it last sat in
+#     this term (the master list's timeslot), marked "not in YEAR"
 #   - a brief note from the master list's Offering note: "alternate years",
 #     "occasional", ...
-#   - other units' courses in italic, at the time they had the last time they
-#     ran in person that fall (or winter), since their 2027-28 times are not
-#     known yet; a course with labs and no lecture at its lab times
+#   - other units' courses in italic; a course with labs and no lecture at its
+#     lab times
 #   - "Honours only" (or "Major only") under a course one track alone requires
 #   - Options: named choices, first-year science (FIRST_YEAR_SCIENCE), and
 #     every 3000/4000-level MATH/STAT course that is not inactive
 #
 # IN BOTH
-#   - Tutorials are left out, and alternative times unless --alternatives.
+#   - Tutorials and labs of our courses are left out.
 #   - A course whose sections meet at different times appears at each.
 #   - Courses at the same level whose times overlap share one block, which
 #     spans all of them; the times are written out when they differ.
 #   - MATH 0863, a pre-university course, goes in the 1000-level column.
-# The grids are generated: change a time on the term sheet and run this again.
 #
-# This script borrows its time and requirements reading from check_timetable.py
-# and its course-number helpers from build_courses.py, which must sit in the
-# same folder.
+# This script borrows its requirements reading from lib/programs.py and its
+# course-number and export reading from build_courses.py and build_advising.py,
+# which must sit in the same folder.
 
 import argparse
 import datetime
@@ -85,7 +99,7 @@ from openpyxl import load_workbook
 
 import build_advising as ba
 import build_courses as bc  # also puts lib/ on sys.path
-import check_timetable as ct
+import programs as pg  # from lib/
 import paths
 
 DAYS = [("M", "Monday"), ("T", "Tuesday"), ("W", "Wednesday"), ("Th", "Thursday"), ("F", "Friday")]
@@ -122,7 +136,7 @@ GRID_HEIGHT_MM = 200
 # Only these are shown. The BA Math is left out: the MATH/STAT courses it
 # requires are essentially the BSc Math's (Patrick, 2026-10-15).
 PROGRAM_NAMES = {
-    "bsc-math": "BSc Math", "bsc-biomath": "Bio-Math",
+    "bsc-math": "BSc Math", "bsc-stat": "BSc Stat", "bsc-biomath": "Bio-Math",
     "bsc-mathecon": "Math-Econ", "bsc-mathphys": "Math-Phys",
 }
 
@@ -183,7 +197,7 @@ def read_other_units(path):
 def required_tracks(program, course):
     """The tracks of one program on which a course is required."""
     return [track for track, entry in program["tracks"].items()
-            if (role := ct.role_in(entry, course)) and role[0] == "required"]
+            if (role := pg.role_in(entry, course)) and role[0] == "required"]
 
 
 def required_by(programs, course):
@@ -191,7 +205,7 @@ def required_by(programs, course):
 
     'All our programs', or a list; programs that require it on the Honours
     track only come after 'Hons:', e.g. 'BSc Math, Bio-Math; Hons: Math-Phys'.
-    "Required" is check_timetable.py's reading of the requirements workbooks:
+    "Required" is lib/programs.py's reading of the requirements workbooks:
     a course in a category that needs all of its courses.
     """
     order = list(PROGRAM_NAMES)
@@ -230,7 +244,7 @@ def place_entries(entries):
     latest = FIRST_ROW_TIME
     for key, time, small, style, *column in entries:
         column = column[0] if column else level(key)
-        options = ct.parse_options(time)
+        options = pg.parse_options(time)
         if not options:
             skipped.append(f"{bc.course_display(key)} {time!r}")
             continue
@@ -423,7 +437,7 @@ def tex_document(pages):
     lines = [
         "% !TeX program = pdflatex",
         "% GENERATED by timetable_grid.py (~/3work/dugs-scripts). Do not edit:",
-        "% change the times on the term sheet of the proposed timetable and rerun.",
+        "% rerun timetable_grid.py instead (see its -h).",
         r"\documentclass[10pt]{article}",
         "",
         "% Landscape ledger (ANSI B): 17in x 11in, half-inch margins all round.",
@@ -493,41 +507,119 @@ def compile_pdf(tex, no_pdf):
 
 
 def our_time(record, alternatives):
-    """One of our courses on a term sheet: (time to draw, note).
+    """One of our courses in the plan: (time to draw, note).
 
     With alternatives, a course that has an Alternative time is drawn there,
     and the note says where it was.
     """
     suggested = record.get("Suggested time", "")
     alternative = record.get("Alternative time", "")
-    if alternatives and ct.parse_options(alternative):
+    if alternatives and pg.parse_options(alternative):
         return alternative, f"alternative; was {suggested}"
     return suggested, ""
 
 
 # ----------------------------------------------------------------------------
-# The department grid
+# What to draw: a plan, one entry per term of the year
+# A plan is a list of terms, each {"title": 'Fall 2026', "season": 'FA',
+# "data": the term whose times are used ('2026/FA'), "courses": {course: record}},
+# a record holding the "Suggested time" (and, from a proposal, an
+# "Alternative time") the way a proposed timetable workbook does.
 # ----------------------------------------------------------------------------
-def department_grid(args, source, terms):
-    slug = re.sub(r"\W+", "-", args.sheet.strip().lower())
-    if args.alternatives:
-        slug += "-alternatives"
-    output = Path(args.output).expanduser() if args.output else source.with_name(f"timetable-grid-{slug}.tex")
-    if args.sheet not in terms:
-        sys.exit(f"No sheet {args.sheet!r} in {source.name}; it has {', '.join(terms)}.")
+def year_terms(year):
+    """'2026-27' -> [('Fall 2026', 'FA', '2026/FA'), ('Winter 2027', 'WI', '2027/WI')]."""
+    match = re.fullmatch(r"(\d{4})-(\d{2})", year)
+    if not match or (int(match[1]) + 1) % 100 != int(match[2]):
+        sys.exit(f"{year!r} is not an academic year like 2026-27.")
+    first = int(match[1])
+    return [(f"Fall {first}", "FA", f"{first}/FA"), (f"Winter {first + 1}", "WI", f"{first + 1}/WI")]
 
-    programs, others = None, {}
-    if not args.no_programs:
-        programs, *_ = ct.load_programs(ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT,
-                                        bc.DEFAULT_TIMETABLES, set(terms[args.sheet]))
-        others = read_other_units(OTHER_UNITS)
+
+def previous_year(year):
+    """'2027-28' -> '2026-27'."""
+    first = int(year[:4]) - 1
+    return f"{first}-{(first + 1) % 100:02d}"
+
+
+def plan_from_export(year, data_year, offerings, covered):
+    """Our courses in each term of data_year, as the export has them, titled as terms of year.
+
+    Every MATH/STAT/DATA course with an in-person lecture, at its lecture
+    times; sections at different times are joined with '|' so the course
+    appears at each. Online sections, tutorials and labs are left out.
+    """
+    plan = []
+    for (title, season, _), (_, _, data) in zip(year_terms(year), year_terms(data_year)):
+        if data not in covered:
+            sys.exit(f"No export in {paths.TIMETABLE_EXPORTS} holds {bc.term_label(data)}; "
+                     f"is there a timetable-{data_year}*.csv?")
+        courses = {}
+        for course, per in offerings.items():
+            offering = per.get(data)
+            if course[:-4] in pg.OURS and offering and offering["inperson"] and offering["lecture_slots"]:
+                courses[course] = {"Suggested time": " | ".join(offering["lecture_slots"])}
+        plan.append({"title": title, "season": season, "data": data, "courses": courses})
+    return plan
+
+
+def plan_from_proposal(year, workbook):
+    """Our courses and times from a proposed timetable's 'Fall YYYY' and 'Winter YYYY' sheets."""
+    sheets = {title: courses for title, _, courses in pg.read_proposal(workbook)}
+    plan = []
+    for title, season, data in year_terms(year):
+        if title not in sheets:
+            sys.exit(f"{workbook.name} has no {title!r} sheet; it has {', '.join(sheets)}.")
+        plan.append({"title": title, "season": season, "data": data, "courses": sheets[title]})
+    return plan
+
+
+def other_time(offerings, course, data, season_terms):
+    """Another unit's course: (time, note), or None if it does not run.
+
+    From the term the plan's times come from, if the exports hold it: its
+    lecture times, or for a course with labs and no lecture its lab times.
+    If they do not (a proposal for a year not yet scheduled), from the last
+    time it ran in person in that season, with a note saying when.
+    """
+    per = offerings.get(course, {})
+    if data in season_terms:
+        ran, note = [data], ""
+    else:
+        ran = [t for t in season_terms if per.get(t) and per[t]["inperson"]][-1:]
+        note = f"{bc.term_label(ran[0])} time" if ran else ""
+    if not ran or not (per.get(ran[0]) and per[ran[0]]["inperson"]):
+        return None
+    offering = per[ran[0]]
+    if offering["lecture_slots"]:
+        return " | ".join(offering["lecture_slots"]), note
+    if offering["tutorial_slots"]:
+        return " | ".join(offering["tutorial_slots"]), "lab" + (f", {note}s" if note else "")
+    return None
+
+
+def describe_source(mode, year, data_year, source):
+    """A sentence for the footer: where the times come from."""
+    if mode == "export":
+        return f"Times from the registrar's timetable, {source.name}."
+    if mode == "draft":
+        return (f"A DRAFT for the timetable committee, not the {year} timetable: every course at its "
+                f"{data_year} time, from {source.name}. Courses added or dropped for {year} are not shown.")
+    return f"Our times as proposed in {source.name}."
+
+
+# ----------------------------------------------------------------------------
+# The department grid: every course of ours, one PDF per term
+# ----------------------------------------------------------------------------
+def department_grid(term, programs, others, folder, suffix, args, describe):
+    slug = re.sub(r"\W+", "-", term["title"].lower())  # 'Fall 2026' -> 'fall-2026'
+    output = folder / f"timetable-grid-{slug}{suffix}.tex"
     entries = []
-    for key, record in terms[args.sheet].items():
+    for key, record in term["courses"].items():
         # The small grey lines under the course: whether it moved, our
         # programs, then other units.
         time, moved = our_time(record, args.alternatives)
         small = []
-        if programs and (ours := required_by(programs, key)):
+        if ours := required_by(programs, key):
             small.append(ours)
         if others.get(key):
             small.append("Also: " + ", ".join(UNIT_SHORT.get(u, u) for u in others[key]))
@@ -539,25 +631,17 @@ def department_grid(args, source, terms):
         else:
             entries.append((key, time, small, False))
 
-    today = datetime.date.today().isoformat()
+    footer = f"{describe} Drawn {datetime.date.today().isoformat()}. "
     if args.alternatives:
-        footer = (f"Times from {source.name}, drawn {today}, with every alternative time taken: "
-                  "a course that moved is in red at its new time (``alternative; was'' its suggested "
-                  "time), and struck out in grey in the slot it left. "
-                  "Tutorials are not shown. A course with sections at different times appears at each.")
-    else:
-        footer = (f"Suggested times from {source.name}, drawn {today}. "
-                  "Alternative times and tutorials are not shown. "
-                  "A course with sections at different times appears at each.")
-    if programs:
-        footer += (" Under each course, in grey: our degree programs that require it, "
-                   "read from the degree-requirements workbooks (``Hons:'' for the Honours track only); "
-                   "then, after ``Also:'', the other units with a program that requires it, from "
-                   f"{OTHER_UNITS.name}. "
-                   "Courses that are only one choice among several are not marked.")
-    title = f"Mathematics and Statistics, {args.sheet}: proposed timetable"
-    if args.alternatives:
-        title += ", with the alternative times"
+        footer += ("Every alternative time is taken: a course that moved is in red at its new time "
+                   "(``alternative; was'' its suggested time), and struck out in grey in the slot it left. ")
+    footer += ("Tutorials and labs are not shown. A course with sections at different times appears at each. "
+               "Under each course, in grey: our degree programs that require it, "
+               "read from the degree-requirements workbooks (``Hons:'' for the Honours track only); "
+               "then, after ``Also:'', the other units with a program that requires it, from "
+               f"{OTHER_UNITS.name}. "
+               "Courses that are only one choice among several are not marked.")
+    title = f"Mathematics and Statistics, {term['title']}: {args.label}"
     page, skipped = tex_page(title, entries, footer)
     output.write_text(tex_document([page]))
     print(f"Wrote {output}")
@@ -576,23 +660,6 @@ BY_LEVEL_COLUMNS = [
 ]
 
 
-def recent_time(offerings, course, season_terms):
-    """Another unit's course: (time, note) from the last time it ran in person this season, or None.
-
-    Its lecture times; or, for a course with labs and no lecture, its lab times.
-    """
-    per = offerings.get(course, {})
-    ran = [t for t in season_terms if per.get(t) and per[t]["inperson"]]
-    if not ran:
-        return None
-    offering, label = per[ran[-1]], bc.term_label(ran[-1])
-    if offering["lecture_slots"]:
-        return " | ".join(offering["lecture_slots"]), f"{label} time"
-    if offering["tutorial_slots"]:
-        return " | ".join(offering["tutorial_slots"]), f"lab, {label} times"
-    return None
-
-
 def master_slot(text):
     """A master-list timeslot cell -> a time this script can draw, or ''.
 
@@ -602,7 +669,7 @@ def master_slot(text):
     pieces = []
     for piece in str(text or "").split("|"):
         piece = piece.split("+")[0]  # drop the tutorial
-        if ct.parse_options(piece):
+        if pg.parse_options(piece):
             pieces.append(piece.strip())
     return " | ".join(pieces)
 
@@ -626,19 +693,14 @@ def offering_word(record):
     return ""  # blank, '-', or 'every year since ...': runs every year now
 
 
-def program_level_grids(args, source, proposal):
-    terms = {title: courses for title, _, courses in proposal}
-    seasons = {title: season for title, season, _ in proposal}
-    offered = set().union(*terms.values())  # ours that run in 2027-28, in either term
-    programs, offerings, covered, _, _ = ct.load_programs(
-        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, offered)
+def program_level_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
+    offered = set().union(*(term["courses"] for term in plan))  # ours that run, in either term
     # Every MATH/STAT course on the master list that is not inactive: its
-    # offering note, and its usual slot for a course not running in 2027-28.
+    # offering note, and its usual slot for a course not running this year.
     master = {k: r for k, r in ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"]).items()
               if r.get("Status", "").strip().lower() != "inactive"}
     upper = {c for c in master if level(c) == 3}
-    folder = source.parent / ("program-grids-by-level" + ("-alternatives" if args.alternatives else ""))
-    folder.mkdir(exist_ok=True)
+    not_running = f"not in {data_year}"
     today = datetime.date.today().isoformat()
 
     for program in programs:
@@ -654,16 +716,17 @@ def program_level_grids(args, source, proposal):
                     options.add(course)
         if program["title"].startswith("BSc"):
             options |= {c for c in FIRST_YEAR_SCIENCE if c not in required}
+        # Our courses that only a pattern like MATH 3*** catches are
+        # electives, and every upper-level course of ours is shown too:
+        # all of them go under Options.
+        electives = {c for c in master if any((r := pg.role_in(e, c)) and r[0] == "elective"
+                                              for e in program["tracks"].values())}
 
         pages = []
-        for title, courses in terms.items():
-            season_terms = [t for t in covered if t.endswith(seasons[title])][-ct.LOOKBACK:]
-            slot_column = "Fall timeslot" if seasons[title] == "FA" else "Winter timeslot"
-            # Our courses that only a pattern like MATH 3*** catches are
-            # electives, and every upper-level course of ours is shown too:
-            # all of them go under Options.
-            electives = {c for c in master if any((r := ct.role_in(e, c)) and r[0] == "elective"
-                                                  for e in program["tracks"].values())}
+        for term in plan:
+            season_terms = [t for t in covered if t.endswith(term["season"])
+                            and bc.term_key(t) <= bc.term_key(term["data"])][-pg.LOOKBACK:]
+            slot_column = "Fall timeslot" if term["season"] == "FA" else "Winter timeslot"
             for lvl in LEVELS:
                 entries = []
                 for course in sorted(set(required) | options | electives | upper):
@@ -673,72 +736,109 @@ def program_level_grids(args, source, proposal):
                     small = []
                     if course in required and len(required[course]) < len(program["tracks"]):
                         small.append(" and ".join(required[course]) + " only")
-                    if course[:-4] in ct.OURS:
-                        # In 2027-28 this term: its proposed time. In 2027-28
-                        # but the other term: not on this page. Not in 2027-28
-                        # at all: where it last sat in this season.
+                    if course[:-4] in pg.OURS:
+                        # Running this term: its time. Running this year but
+                        # the other term: not on this page. Not running this
+                        # year at all: where it last sat in this season.
                         word = offering_word(master.get(course, {}))
-                        if course in courses:
-                            time, moved = our_time(courses[course], args.alternatives)
+                        if course in term["courses"]:
+                            time, moved = our_time(term["courses"][course], args.alternatives)
                             word = "; ".join(w for w in (moved, word) if w)
                         elif course in offered:
                             continue
                         else:
                             time = master_slot(master.get(course, {}).get(slot_column))
-                            word = "; ".join(w for w in (word, "not in 2027-28") if w)
-                        if not ct.parse_options(time):
+                            word = "; ".join(w for w in (word, not_running) if w)
+                        if not pg.parse_options(time):
                             continue  # no set time (a thesis), or never in this season
                         entries.append((course, time, small + ([word] if word else []), False, column))
                         continue
-                    found = recent_time(offerings, course, season_terms)
+                    found = other_time(offerings, course, term["data"], season_terms)
                     if found:
                         time, note = found
-                        entries.append((course, time, small + [note], True, column))
+                        entries.append((course, time, small + ([note] if note else []), True, column))
                 if not entries:
                     continue  # nothing at this level this term
                 spec = [(k, h, f.format(level=lvl), x) for k, h, f, x in BY_LEVEL_COLUMNS]
                 footer = (f"{program['title']}, {LEVEL_NAMES[lvl]} courses: required ones in the first column "
                           "under each day; options in grey in the second (named choices, first-year science, "
-                          "and every 3000/4000-level MATH/STAT course). Our courses at the times proposed in "
-                          f"{source.name}; one not running in 2027-28 at the slot it last had in this term, "
-                          "marked ``not in 2027-28''. Notes such as ``alternate years'' or ``occasional'' "
-                          "come from the master course list. Other units' courses in italic at the time they "
-                          "had the last time they ran in person in that term, since their 2027-28 times are "
-                          "not known yet. A course with sections at different times (or a lab) appears at "
-                          f"each: choose one. Drawn {today}.")
-                heading = f"{program['title']}, {title}: {LEVEL_NAMES[lvl]} courses"
+                          "and every 3000/4000-level MATH/STAT course). "
+                          f"{describe} A course of ours not running in {data_year} sits at the slot it last "
+                          f"had in this term, marked ``{not_running}''. Notes such as ``alternate years'' or "
+                          "``occasional'' come from the master course list. Other units' courses are in italic"
+                          + ("" if term["data"] in season_terms else
+                             ", at the time they had the last time they ran in person in this term")
+                          + ". A course with sections at different times (or a lab) appears at each: choose one. "
+                          f"Drawn {today}.")
+                heading = f"{program['title']}, {term['title']}: {LEVEL_NAMES[lvl]} courses"
+                if args.label != "timetable":
+                    heading += f" ({args.label})"
                 if args.alternatives:
-                    heading += ", with the alternative times"
                     footer += " Every alternative time is taken: a course that moved says ``alternative; was''."
                 page, _ = tex_page(heading, entries, footer, spec)
                 pages.append(page)
-        output = folder / f"{program['name']}.tex"
+        output = folder / f"{program['name']}{suffix}.tex"
         output.write_text(tex_document(pages))
         print(f"Wrote {output} ({len(pages)} pages)")
         compile_pdf(output, args.no_pdf)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Draw the proposed timetable as week grids.")
-    parser.add_argument("-w", "--workbook", default=ct.DEFAULT_WORKBOOK,
-                        help="the proposed timetable (only read)")
-    parser.add_argument("-s", "--sheet", default="Fall 2027", help='term sheet to draw (default "Fall 2027")')
-    parser.add_argument("-o", "--output", help="the department grid's .tex")
-    parser.add_argument("--by-level", action="store_true",
-                        help="one PDF per degree program, a page per level per term, required and options")
+    parser = argparse.ArgumentParser(description="Draw a year's timetable as week grids.")
+    parser.add_argument("year", help="the academic year to draw, e.g. 2026-27")
+    parser.add_argument("--draft", action="store_true",
+                        help="draw the year as a draft: last year's courses at last year's times")
+    parser.add_argument("--proposal", metavar="WORKBOOK",
+                        help="take our courses' times from a proposed timetable workbook instead")
     parser.add_argument("--alternatives", action="store_true",
-                        help="draw every course that has an Alternative time at that time")
-    parser.add_argument("--no-pdf", action="store_true", help="do not run pr-latexmk")
-    parser.add_argument("--no-programs", action="store_true",
-                        help="department grid: leave out the programs under each course")
+                        help="with --proposal: draw every course that has an Alternative time at that time")
+    parser.add_argument("--only", choices=["department", "programs"], help="draw only one kind of grid")
+    parser.add_argument("--no-pdf", action="store_true", help="write the .tex only; do not run pr-latexmk")
     args = parser.parse_args()
+    if args.draft and args.proposal:
+        sys.exit("--draft and --proposal are two different drafts: choose one.")
+    if args.alternatives and not args.proposal:
+        sys.exit("--alternatives needs --proposal: only a proposed timetable has alternative times.")
+    year_terms(args.year)  # stops on a malformed year
 
-    source = Path(args.workbook).expanduser()
-    proposal = ct.read_proposal(source)
-    if args.by_level:
-        program_level_grids(args, source, proposal)
-    else:
-        department_grid(args, source, {title: courses for title, _, courses in proposal})
+    mode = "proposal" if args.proposal else "draft" if args.draft else "export"
+    data_year = previous_year(args.year) if args.draft else args.year
+    folder = paths.TIMETABLE / args.year
+    if not folder.is_dir():
+        sys.exit(f"No folder {folder}; make it first, or check the year.")
+    # Anything not from the registrar is marked in every file name, so it cannot
+    # be taken for the real timetable.
+    suffix = {"export": "", "draft": "-draft", "proposal": "-proposed"}[mode]
+    suffix += "-alternatives" if args.alternatives else ""
+    args.label = {"export": "timetable", "draft": "DRAFT, last year's times",
+                  "proposal": "proposed timetable"}[mode]
+    if args.alternatives:
+        args.label += ", with the alternative times"
+
+    if args.proposal:
+        source = Path(args.proposal).expanduser()
+        plan = plan_from_proposal(args.year, source)
+    offered = set().union(*(term["courses"] for term in plan)) if args.proposal else set()
+    programs, offerings, covered, files, _ = pg.load_programs(
+        ba.DEFAULT_REQUIREMENTS, ba.DEFAULT_OUTPUT, bc.DEFAULT_TIMETABLES, offered)
+    if not args.proposal:
+        source = next((f for f in files if bc.export_year(f) == data_year), None)
+        if source is None:
+            sys.exit(f"No timetable-{data_year}*.csv in {paths.TIMETABLE_EXPORTS}.")
+        plan = plan_from_export(args.year, data_year, offerings, covered)
+    describe = describe_source(mode, args.year, data_year, source)
+    print(f"Drawing {args.year} ({args.label}) from {source.name}")
+
+    if args.only != "programs":
+        out = folder / "departmental-grids"
+        out.mkdir(exist_ok=True)
+        others = read_other_units(OTHER_UNITS)
+        for term in plan:
+            department_grid(term, programs, others, out, suffix, args, describe)
+    if args.only != "department":
+        out = folder / "program-grids-by-level"
+        out.mkdir(exist_ok=True)
+        program_level_grids(plan, programs, offerings, covered, out, suffix, args, describe, data_year)
 
 
 if __name__ == "__main__":
