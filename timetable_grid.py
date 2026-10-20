@@ -16,7 +16,10 @@
 #                   Timetable team's folder for that year, which must exist:
 #                     YEAR/departmental-grids/timetable-grid-fall-2026.tex (and winter)
 #                     YEAR/program-grids-by-level/<program>.tex
-#                   each compiled to a PDF beside it with pr-latexmk.
+#                   each compiled to a PDF beside it with pr-latexmk. Each
+#                   program PDF is also copied to the Advising team, as
+#                   resources/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf
+#                   (not for --draft or --proposal: those are the committee's).
 #   --draft         use LAST year's export: every course of ours at the time it
 #                   had then. For the timetable committee in the fall, before
 #                   anything is decided. Files are named with "-draft"
@@ -493,17 +496,21 @@ def tex_document(pages):
 
 
 def compile_pdf(tex, no_pdf):
-    """Run pr-latexmk on a .tex, unless told not to. Stops the script if it fails."""
+    """Run pr-latexmk on a .tex, unless told not to. Returns the PDF, or None if none was made.
+
+    Stops the script if the compile fails.
+    """
     if no_pdf:
-        return
+        return None
     if not shutil.which("pr-latexmk"):
         print("  pr-latexmk not found; compile the .tex yourself.")
-        return
+        return None
     result = subprocess.run(["pr-latexmk", str(tex)], capture_output=True, text=True)
     if result.returncode != 0:
         print(result.stdout[-3000:] + result.stderr[-2000:])
         sys.exit(f"pr-latexmk failed on {tex.name}; see above.")
     print(f"Wrote {tex.with_suffix('.pdf')}")
+    return tex.with_suffix(".pdf")
 
 
 def our_time(record, alternatives):
@@ -780,7 +787,11 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
         output = folder / f"{program['name']}{suffix}.tex"
         output.write_text(tex_document(pages))
         print(f"Wrote {output} ({len(pages)} pages)")
-        compile_pdf(output, args.no_pdf)
+        pdf = compile_pdf(output, args.no_pdf)
+        # Advisors read a copy of each program's PDF, in their own folder.
+        if pdf and args.copy_to:
+            if copy := bc.copy_for_another_team(pdf, args.copy_to / f"{program['name']}-DO-NOT-EDIT.pdf"):
+                print(f"  Copied for the Advising team to {copy}")
 
 
 def main():
@@ -836,6 +847,12 @@ def main():
         for term in plan:
             department_grid(term, programs, others, out, suffix, args, describe)
     if args.only != "department":
+        # Only the registrar's timetable goes to the Advising team; drafts and
+        # proposals are the committee's.
+        args.copy_to = None
+        if mode == "export" and paths.PROGRAM_GRIDS_COPY.is_dir():
+            args.copy_to = paths.PROGRAM_GRIDS_COPY / args.year
+            args.copy_to.mkdir(exist_ok=True)
         out = folder / "program-grids-by-level"
         out.mkdir(exist_ok=True)
         program_level_grids(plan, programs, offerings, covered, out, suffix, args, describe, data_year)

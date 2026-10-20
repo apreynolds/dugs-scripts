@@ -22,6 +22,7 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 - Columns with yellow headers are typed by a person and carried across every rebuild; everything else is regenerated.
 - Both scripts refuse to run while their workbook is open in Excel.
 - Each rebuild first copies the workbook it replaces to `NAME-bak.xlsx` beside it, replacing the last such copy; older versions are in OneDrive's version history.
+- The master list's home is the Curriculum team; each real rebuild (not a trial `-o`) also copies it to the Advising team's `resources` folder as `COURSES-math-stat-DO-NOT-EDIT.xlsx`.
 - The master list's `Required by others` column is generated from the newest calendar sweep (see below): the units whose calendar text names the course. If the build lists a program page with no unit, add a rule for it to `PAGE_UNITS` in `build_courses.py`.
 - A course on the master list's `removed` sheet gets no row in the advising timetable, even if a degree-requirements workbook still names it; the build prints which workbook that is.
 - If the advising build fails with "Operation timed out" and "File is not a zip file", OneDrive was still syncing the workbook after a recent write. Wait a minute and run it again.
@@ -45,7 +46,8 @@ Four passes a year:
 | August | `uv run timetable_grid.py 2027-28` | Next year again, nearer the start of term |
 
 - `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes, into files named `-proposed-alternative`.
-- `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only.
+- The program grids drawn from an export are also copied to the Advising team, as `resources/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf`. Drafts and proposals are not: they are the committee's.
+- `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only (and so makes no copy).
 - Whether next year's timetable reaches Informer as soon as the registrar releases it is not known yet (October 2026).
 
 ## The academic calendar
