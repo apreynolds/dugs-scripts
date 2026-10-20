@@ -12,8 +12,8 @@
 #
 #   -o, --output      workbook to write (default: COURSES-math-stat.xlsx in
 #                     the curriculum folder). Always written from scratch. A
-#                     file already there is first copied, with the date and
-#                     time in its name, into the zzzzz folder beside it.
+#                     file already there is first copied beside it as
+#                     NAME-bak.xlsx, replacing the last one.
 #                     Refuses to run while the workbook is open in Excel
 #   -p, --previous    workbook read ONLY for the columns a person typed
 #                     (status, notes, ...) and the calendar text (default: the
@@ -962,18 +962,13 @@ def backup_existing(output):
     """Copy the workbook about to be overwritten, and return where the copy went.
 
     The workbook holds typed columns that exist nowhere else, so it is never
-    overwritten without a dated copy. The copy goes in a 'zzzzz' folder
-    (Patrick's archive folders) beside it or one level up, else right beside it.
+    overwritten without a copy. There is one copy, NAME-bak.xlsx right beside
+    it where it will not be forgotten, replaced at every run; anything older
+    is in OneDrive's version history.
     """
     if not output.exists():
         return None
-    folder = output.parent
-    for archive in (output.parent / "zzzzz", output.parent.parent / "zzzzz"):
-        if archive.is_dir():
-            folder = archive
-            break
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    backup = folder / f"{output.stem}_{stamp}{output.suffix}"
+    backup = output.with_name(f"{output.stem}-bak{output.suffix}")
     shutil.copy2(output, backup)  # copy2 keeps the file's modified date
     return backup
 

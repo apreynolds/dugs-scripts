@@ -11,8 +11,8 @@
 #
 #   -o, --output        workbook to write (default: advising-timetable.xlsx in
 #                       TEAM-ADVISING/resources). Always written from scratch.
-#                       A file already there is first copied, with the date
-#                       and time in its name, into a zzzzz folder. Refuses to
+#                       A file already there is first copied beside it as
+#                       NAME-bak.xlsx, replacing the last one. Refuses to
 #                       run while the workbook is open in Excel
 #   -p, --previous      workbook read ONLY for the typed columns (default: the
 #                       output workbook itself, if it exists)

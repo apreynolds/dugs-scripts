@@ -12,8 +12,8 @@
 #   -w, --workbook      the proposed timetable (default: proposed-timetable-2027-28.xlsx
 #                       in the Timetable team's 2027-28 folder). Its "Fall YYYY" and "Winter YYYY"
 #                       sheets are read; only the three "Check - ..." sheets are
-#                       written, replacing the ones from the last run. A dated
-#                       copy of the workbook goes into a zzzzz folder first.
+#                       written, replacing the ones from the last run. A copy
+#                       of the workbook goes beside it as NAME-bak.xlsx first.
 #                       Refuses to run while the workbook is open in Excel
 #   -r, --requirements  folder of degree-requirements workbooks
 #   -a, --advising      the advising timetable, read only for its Other numbers
