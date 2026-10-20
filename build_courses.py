@@ -14,7 +14,9 @@
 #                     the curriculum folder). Always written from scratch. A
 #                     file already there is first copied beside it as
 #                     NAME-bak.xlsx, replacing the last one.
-#                     Refuses to run while the workbook is open in Excel
+#                     Refuses to run while the workbook is open in Excel.
+#                     The real one (not a trial -o) is then copied to the
+#                     Advising team as COURSES-math-stat-DO-NOT-EDIT.xlsx
 #   -p, --previous    workbook read ONLY for the columns a person typed
 #                     (status, notes, ...) and the calendar text (default: the
 #                     output workbook itself). Either the old
@@ -995,6 +997,19 @@ def backup_existing(output):
     return backup
 
 
+def copy_for_another_team(original, copy):
+    """Copy a finished file into another team's folder, as its -DO-NOT-EDIT copy.
+
+    Returns the copy's path, or None when that folder is missing (a trial
+    run on another machine, say), which is reported rather than fatal.
+    """
+    if not copy.parent.is_dir():
+        print(f"  No folder {copy.parent}, so no copy was made there.")
+        return None
+    shutil.copy2(original, copy)  # copy2 keeps the file's modified date
+    return copy
+
+
 def refuse_if_open(output):
     """Stop if Excel has the workbook open.
 
@@ -1270,6 +1285,10 @@ def main():
     print(f"Wrote {output}")
     if backup:
         print(f"  The copy it replaced was kept as {backup}")
+    # Advisors read a copy. Only the real master list is copied, never a trial one.
+    if output.resolve() == Path(DEFAULT_OUTPUT).resolve():
+        if copy := copy_for_another_team(output, paths.MASTER_LIST_COPY):
+            print(f"  Copied for the Advising team to {copy}")
     print(f"  MAIN: {len(main_keys)} courses ({len(new_courses)} new), removed: {len(removed_keys)}")
     print(f"  History: {term_label(all_terms[0])} to {term_label(all_terms[-1])}, {len(all_terms)} terms")
     if sweep_dir:
