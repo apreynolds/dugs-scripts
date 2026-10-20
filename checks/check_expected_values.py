@@ -15,6 +15,11 @@
 # them fine — the original hand-built template used the same references.
 
 import sys
+from pathlib import Path
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import requirements_io
 import tracker_reader

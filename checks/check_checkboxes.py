@@ -28,8 +28,13 @@
 import re
 import sys
 import zipfile
+from pathlib import Path
 
 import openpyxl
+
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
 
 import blank_tracker
 import check_support

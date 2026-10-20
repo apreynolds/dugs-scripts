@@ -46,6 +46,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import check_expected_values as expected
 import check_support
 
@@ -88,7 +92,7 @@ def build_tracker(work, failures):
     requirements = check_support.sample_requirements(work)
     tracker = work / "tracker.xlsx"
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()),
          "-r", str(requirements), "-o", str(tracker), "-t", "Honours"],
         capture_output=True, text=True,

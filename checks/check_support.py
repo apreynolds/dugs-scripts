@@ -28,6 +28,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import requirements_io
 
 HERE = Path(__file__).resolve().parent
@@ -52,7 +56,7 @@ def fresh_dir(name):
 def run_script(script_name, *args):
     """Run one of the repo's scripts with the current interpreter."""
     result = subprocess.run(
-        [sys.executable, str(HERE / script_name)] + [str(a) for a in args],
+        [sys.executable, str(REPO / script_name)] + [str(a) for a in args],
         capture_output=True, text=True,
     )
     if result.returncode != 0:

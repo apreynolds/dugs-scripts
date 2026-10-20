@@ -19,6 +19,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import check_support
 import requirements_io
 
@@ -76,7 +80,7 @@ def main():
 
     tracker = WORK / "two-edition.xlsx"
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"), str(PDF),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"), str(PDF),
          "-r", str(REQ2020), "-r", str(req2027),
          "-o", str(tracker), "-t", "Honours"],
         capture_output=True, text=True,

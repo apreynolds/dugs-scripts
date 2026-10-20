@@ -46,6 +46,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import check_expected_values as expected
 import check_support
 import tracker_writer
@@ -103,7 +107,7 @@ def build(work, name, args):
     """Generate a tracker and return its path, or None on failure."""
     tracker = work / name
     result = subprocess.run(
-        [sys.executable, str(HERE / "transcript_to_tracker.py"),
+        [sys.executable, str(REPO / "transcript_to_tracker.py"),
          str(check_support.sample_transcript()), "-o", str(tracker)] + args,
         capture_output=True, text=True,
     )

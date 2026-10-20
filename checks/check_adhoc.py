@@ -39,6 +39,10 @@ from pathlib import Path
 
 import openpyxl
 
+# The scripts live one folder up, and their helper modules in lib/.
+REPO = Path(__file__).resolve().parent.parent
+sys.path[:0] = [str(REPO), str(REPO / "lib")]
+
 import check_support
 import tracker_reader
 import tracker_writer
@@ -53,7 +57,7 @@ def failing(message, failures):
 
 def run(script, *args):
     return subprocess.run(
-        [sys.executable, str(HERE / script)] + [str(a) for a in args],
+        [sys.executable, str(REPO / script)] + [str(a) for a in args],
         capture_output=True, text=True,
     )
 
