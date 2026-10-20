@@ -1,0 +1,54 @@
+# Degree-requirements data, tab-separated.
+#
+# This is a TEST FIXTURE, not a working requirements file. The checks
+# rebuild it into a workbook in memory (check_support.workbook_from_tsv)
+# because requirements_io reads .xlsx and nothing else.
+#
+# It exists to exercise PER-CATEGORY PASSING GRADES, which the BSc fixture
+# cannot: a BSc refuses a D everywhere, so it needs no Pass column at all and
+# every bar in it is the default C.
+#
+# A BA is different. A D earns credit toward the degree, but not in the major
+# — not in a MATH or STAT category. So the file sets its default to D and
+# overrides the eight major categories back to C.
+#
+# Written that way round on purpose. It mirrors the regulation's own shape
+# ("D counts, except in the major"), and it fails safe: a category added here
+# later inherits D, which is right for the electives that make up most of the
+# degree. Default-C with D written on the electives would need fewer cells but
+# would silently make each new elective category too strict.
+#
+# Section headings in [brackets]; blank lines and #-comments ignored.
+
+[Meta]
+Field	Value
+Program	BA Mathematics
+Edition	2020
+Default passing grade	D
+Total CH: Major	120
+Total CH: Honours	123
+
+[Requirements]
+Category	Description	Courses	Major	Honours	Pass	Note
+ARTS	ARTS 1013, ARTS 1023	ARTS 1013; ARTS 1014; ARTS 1023; ARTS 1024	6	6
+Calc	MATH 1003, MATH 1013	MATH 1003; MATH 1013; MATH 1053; MATH 1063	6	6	C	MATH 1053/1063 accepted in place of 1003/1013 (1063 is 4 ch).
+Grp1	First-year Group A/B/C		6	6		A: Languages, B: Humanities, C: Social Sciences. Group D is covered by Calc.
+Grp2	First-year Group A/B/C, a second group		6	6		Must be a different group from Grp1.
+CS	CS 1003 or 1073, and CS 1023 or 1083	CS 1003; CS 1073; CS 1023; CS 1083	6	6		Two CS courses are required. The 1073/1083 (Java) stream is 4 ch each, so 7-8 ch is common; the surplus falls to Free Electives.
+2ndMath	MATH 2003, 2013, 2203, 2213	MATH 2003; MATH 2013; MATH 2203; MATH 2213	12	12	C	MATH 2513 accepted for 2003, MATH 1503 for 2213, CS 1303 for 2203 — see advisor.
+3rdMath	MATH 3033, 3213, 3243	MATH 3033; MATH 3213; MATH 3243	9	9	C
+Analys	MATH 3003 or 3103	MATH 3003; MATH 3103	3	3	C	Honours requires 3103.
+Stat	STAT 3083, STAT 3093	STAT 3083; STAT 3093	6	6	C	STAT 2593 can count for 3083 with a grade of B or better.
+MathElec	Upper Year MATH Electives	MATH 3***; MATH 4***	15	15	C
+AnalysH	MATH 3113	MATH 3113	0	3	C	Honours only.
+Thesis	MATH 4100	MATH 4100	0	6	C	Honours only; 6 ch thesis.
+FreeElec	Free Electives		—	—		Catch-all: no target, just a count.
+
+[Constraints]
+#	Constraint	Tracks	Note
+1	The two first-year A/B/C groups are from different groups		A: Languages, B: Humanities, C: Social Sciences
+2	Two CS courses taken — (CS 1003 or 1073) and (CS 1023 or 1083)		May sit among the first-year courses or later electives
+3	Last 60 ch are upper level (3000/4000/5000), bar up to 9 ch		Up to 9 ch of 1000-/2000-level may be included with advisor approval
+4	MATH 2623 not counted		Not available for credit to a Major in Mathematics/Statistics
+5	MATH 3103 taken rather than MATH 3003	Honours
+6	GPA 3.6 in 3000/4000-level MATH for First Class Honours	Honours	Computed on the minimum specified MATH courses only; ch above the minimum are excluded. Arts Faculty minimum CGPA: First Class 3.6, Second Class 3.0.

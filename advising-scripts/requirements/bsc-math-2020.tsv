@@ -1,0 +1,41 @@
+# Degree-requirements data, tab-separated.
+#
+# This is a TEST FIXTURE, not a working requirements file. The checks
+# rebuild it into a workbook in memory (check_support.workbook_from_tsv)
+# because requirements_io reads .xlsx and nothing else.
+#
+# The requirements files you actually advise from are the hand-maintained
+# workbooks in the advising data folder, passed to the CLI with -r. They
+# are not tracked here.
+#
+# Section headings in [brackets]; blank lines and #-comments ignored.
+
+[Meta]
+Field	Value
+Program	BSc Mathematics
+Edition	2020
+Total CH: Major	129
+Total CH: Honours	132
+
+[Requirements]
+Category	Description	Courses	Major	Honours	Note
+Calc	MATH 1003, MATH 1013	MATH 1003; MATH 1013	6	6
+Sci1001	Sci 1001	SCI 1001	1	1
+SciLec	First Year Science Lectures		18	18
+SciLab	First Year Science Labs		8	8
+2ndMath	MATH 2003, 2013, 2203, 2213	MATH 2003; MATH 2013; MATH 2203; MATH 2213	12	12
+Stat	STAT 3083, STAT 3093	STAT 3083; STAT 3093	6	6	STAT 2593 can count for 3083 with a grade of B or better
+CS	CS 1003 or 1073	CS 1003; CS 1073	4	4	CS 1003 = Python, CS 1073 = Java. Recommended to take in 1st or 2nd year.
+3rdMath	MATH 3033, 3213, 3243	MATH 3033; MATH 3213; MATH 3243	9	9
+Analys	MATH 3003 or 3103	MATH 3003; MATH 3103	3	3
+Breadth1	Breadth (3000/4000-level), same discipline		9	9	Cannot be STAT, as a max of 6ch can count as Breadth.
+Breadth2	Breadth (3000/4000-level)		6	6
+MathElec	Upper Year MATH Electives	MATH 3***; MATH 4***	15	15	For Honours: at least 3 ch must be 4000-level. (See Constraints below.)
+AnalysH	MATH 3113	MATH 3113	0	3
+Thesis	MATH 4100	MATH 4100	0	6
+FreeElec	Free Electives		—	—
+
+[Constraints]
+#	Constraint	Tracks	Note
+1	Max 6 ch STAT counted toward Breadth		(any combination of Breadth1/Breadth2)
+2	Min 3 ch 4000-level MATH	Honours
