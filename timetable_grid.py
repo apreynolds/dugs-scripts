@@ -18,7 +18,7 @@
 #                     YEAR/program-grids-by-level/<program>.tex
 #                   each compiled to a PDF beside it with pr-latexmk. Each
 #                   program PDF is also copied to the Advising team, as
-#                   resources/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf
+#                   RESOURCES/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf
 #                   (not for --draft or --proposal: those are the committee's).
 #   --draft         use LAST year's export: every course of ours at the time it
 #                   had then. For the timetable committee in the fall, before

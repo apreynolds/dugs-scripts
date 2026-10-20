@@ -10,7 +10,7 @@
 #   ./build_advising.py -h | --help
 #
 #   -o, --output        workbook to write (default: advising-timetable.xlsx in
-#                       TEAM-ADVISING/resources). Always written from scratch.
+#                       TEAM-ADVISING/RESOURCES). Always written from scratch.
 #                       A file already there is first copied beside it as
 #                       NAME-bak.xlsx, replacing the last one. Refuses to
 #                       run while the workbook is open in Excel

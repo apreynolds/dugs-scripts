@@ -13,11 +13,11 @@ it, the invariants, the traps, and how to verify a change.
 ## Running it
 
 ```bash
-cd "~/OneDrive - University of New Brunswick/TEAM-ADVISING"
+cd "$HOME/OneDrive - University of New Brunswick/TEAM-ADVISING"
 
 uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
-    -r degree-requirements/bsc-math-2020.xlsx \
+    -r RESOURCES/degree-requirements/bsc-math-2020.xlsx \
     -o student-records/NAME/tracker.xlsx -t Honours
 ```
 
@@ -34,7 +34,7 @@ pr-degree-tracker -l                # what degree keys exist
 ```
 
 It finds the single PDF in the directory, resolves `bsc-math` to
-`degree-requirements/bsc-math-<year>.xlsx`, names the output after the
+`RESOURCES/degree-requirements/bsc-math-<year>.xlsx`, names the output after the
 directory, and never overwrites an existing tracker (it falls back to `-v1`,
 `-v2`, …). `-t`, and anything after `--`, pass straight through. That wrapper
 is a convenience only — nothing in this repo depends on it, and the full CLI
@@ -47,7 +47,7 @@ already entered are preserved.
 ```bash
 uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
-    -r degree-requirements/bsc-math-2020.xlsx \
+    -r RESOURCES/degree-requirements/bsc-math-2020.xlsx \
     -u student-records/NAME/tracker.xlsx
 ```
 
@@ -72,7 +72,7 @@ Other things it does:
 
 ```bash
 # Two calendar editions side by side in one tracker — repeat -r
-... -r degree-requirements/bsc-math-2020.xlsx -r degree-requirements/bsc-math-2027.xlsx
+... -r RESOURCES/degree-requirements/bsc-math-2020.xlsx -r RESOURCES/degree-requirements/bsc-math-2027.xlsx
 
 # When a transcript won't parse, look at the coordinate grid first
 uv run transcript_to_tracker.py --dump-text transcript.pdf
@@ -109,7 +109,7 @@ pipeline out of the picture:
 
 ```bash
 uv run ~/3work/dugs-scripts/blank_tracker.py \
-    -r degree-requirements/bsc-math-2020.xlsx \
+    -r RESOURCES/degree-requirements/bsc-math-2020.xlsx \
     -o student-records/NAME/tracker.xlsx -t Honours \
     -n "Last, First" --id 1234567
 ```
@@ -150,7 +150,7 @@ data is. Only the paths typed as *arguments* are relative to the shell.
   anonymisation had missed.
 
 - **The requirements workbooks are not tracked here.** They live in
-  `TEAM-ADVISING/degree-requirements/`, are maintained by hand in Excel, and reach
+  `TEAM-ADVISING/RESOURCES/degree-requirements/`, are maintained by hand in Excel, and reach
   the pipeline through `-r`. The `checks/requirements/*.tsv` is a *test
   fixture only* — text so it is readable in a diff.
 
