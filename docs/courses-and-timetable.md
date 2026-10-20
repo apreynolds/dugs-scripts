@@ -44,7 +44,7 @@ Four passes a year:
 | March | `uv run timetable_grid.py 2027-28` | Next year, once the registrar has released it |
 | August | `uv run timetable_grid.py 2027-28` | Next year again, nearer the start of term |
 
-- `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes.
+- `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes, into files named `-proposed-alternative`.
 - `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only.
 - Whether next year's timetable reaches Informer as soon as the registrar releases it is not known yet (October 2026).
 

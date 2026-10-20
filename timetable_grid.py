@@ -26,7 +26,7 @@
 #                   with "-proposed"
 #   --alternatives  with --proposal: draw each course that has an "Alternative
 #                   time" there instead, struck out in grey where it was and in
-#                   red where it goes. Files get "-alternatives" in the name
+#                   red where it goes. Files get "-alternative" in the name
 #   --only KIND     draw only the department grids or only the program grids
 #   --no-pdf        do not run pr-latexmk afterwards
 # Every .tex is overwritten each run: it is output, and nothing in it is typed.
@@ -809,7 +809,7 @@ def main():
     # Anything not from the registrar is marked in every file name, so it cannot
     # be taken for the real timetable.
     suffix = {"export": "", "draft": "-draft", "proposal": "-proposed"}[mode]
-    suffix += "-alternatives" if args.alternatives else ""
+    suffix += "-alternative" if args.alternatives else ""
     args.label = {"export": "timetable", "draft": "DRAFT, last year's times",
                   "proposal": "proposed timetable"}[mode]
     if args.alternatives:
