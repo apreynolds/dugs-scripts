@@ -10,7 +10,7 @@
 #   ./check_timetable.py -h | --help
 #
 #   -w, --workbook      the proposed timetable (default: proposed-timetable-2027-28.xlsx
-#                       in timetable-committee). Its "Fall YYYY" and "Winter YYYY"
+#                       in the Timetable team's 2027-28 folder). Its "Fall YYYY" and "Winter YYYY"
 #                       sheets are read; only the three "Check - ..." sheets are
 #                       written, replacing the ones from the last run. A dated
 #                       copy of the workbook goes into a zzzzz folder first.
@@ -79,12 +79,13 @@ from openpyxl import load_workbook
 from openpyxl.styles import Alignment, Font
 
 import build_advising as ba
-import build_courses as bc
+import build_courses as bc  # also puts lib/ on sys.path
+import paths
 
 # ----------------------------------------------------------------------------
 # Defaults
 # ----------------------------------------------------------------------------
-DEFAULT_WORKBOOK = bc.DUGS / "timetable-committee/proposed-timetable-2027-28.xlsx"
+DEFAULT_WORKBOOK = paths.TIMETABLE / "2027-28/proposed-timetable-2027-28.xlsx"
 
 OURS = ("MATH", "STAT", "DATA")
 

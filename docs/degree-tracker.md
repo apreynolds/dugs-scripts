@@ -13,7 +13,7 @@ it, the invariants, the traps, and how to verify a change.
 ## Running it
 
 ```bash
-cd ~/Documents/3work/TEAM-Advising
+cd "~/OneDrive - University of New Brunswick/TEAM-ADVISING"
 
 uv run ~/3work/dugs-scripts/transcript_to_tracker.py \
     student-records/NAME/transcript.pdf \
@@ -150,7 +150,7 @@ data is. Only the paths typed as *arguments* are relative to the shell.
   anonymisation had missed.
 
 - **The requirements workbooks are not tracked here.** They live in
-  `TEAM-Advising/degree-requirements/`, are maintained by hand in Excel, and reach
+  `TEAM-ADVISING/degree-requirements/`, are maintained by hand in Excel, and reach
   the pipeline through `-r`. The `checks/requirements/*.tsv` is a *test
   fixture only* — text so it is readable in a diff.
 
@@ -710,6 +710,6 @@ line accurate when flags change.
 ## Data lives elsewhere
 
 This repo holds no real transcripts and no spreadsheets. Patrick keeps those in
-`~/Documents/3work/TEAM-Advising/` and will point you at a specific
+`~/OneDrive - University of New Brunswick/TEAM-ADVISING/` and will point you at a specific
 file when a task needs one — don't go looking. Real student records are never
 to be read unless he explicitly asks for a named file.

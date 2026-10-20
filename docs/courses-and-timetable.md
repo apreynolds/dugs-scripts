@@ -1,7 +1,7 @@
 # Courses, calendar and timetable
 
 Scripts behind the department's course records, kept by Patrick Reynolds (DUGS, Mathematics and Statistics, UNB) with Claude Code.
-The data they read and write is not in this repository; it lives in `~/Documents/3work/WIP-DUGS-related/curriculum` and `~/Documents/3work/TEAM-Advising`.
+The data they read and write is not in this repository; it lives in the team folders on OneDrive, which `lib/paths.py` names.
 
 Every script is run with `uv run --script NAME.py`, and prints its options with `-h`.
 Each one starts with a comment block that explains it in more detail than this file does.
@@ -11,7 +11,7 @@ Each one starts with a comment block that explains it in more detail than this f
 | Script | Reads | Writes |
 |---|---|---|
 | `build_courses.py` | The Informer exports, and the typed columns of the workbook it is about to replace | `curriculum/COURSES-math-stat.xlsx`, the master course list |
-| `build_advising.py` | The master list, the degree-requirements workbooks, the timetable exports | `TEAM-Advising/resources/advising-timetable.xlsx` |
+| `build_advising.py` | The master list, the degree-requirements workbooks, the timetable exports | `TEAM-ADVISING/resources/advising-timetable.xlsx` |
 
 The routine rebuild, master list first because the advising timetable reads it:
 
@@ -29,7 +29,7 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 ## The timetable check
 
 `check_timetable.py` checks the timetable committee's proposed timetable against the degree programs.
-It reads the term sheets of `timetable-committee/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
+It reads the term sheets of `TEAM-TIMETABLE/General/2027-28/proposed-timetable-2027-28.xlsx`, the degree-requirements workbooks, and the timetable exports (for other units' times), and writes three sheets into the same workbook: `Check - clashes`, `Check - alternatives` and `Check - about`.
 Those three are regenerated on every run; the term sheets and `Notes` are never touched.
 
 ```
@@ -70,9 +70,9 @@ The three files `sweep_references.py` writes:
 Once the new calendar is online (it has appeared at the "current" address each summer):
 
 1. Mirror it into a new year folder:
-   `uv run --script ~/3work/dugs-scripts/mirror_calendar.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/mirror_calendar.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"`
 2. Sweep it:
-   `uv run --script ~/3work/dugs-scripts/sweep_references.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28`
+   `uv run --script ~/3work/dugs-scripts/sweep_references.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"`
 3. Compare the three `sweep-*.tsv` files with last year's. Only the differences need reading.
    There is no script for this comparison yet.
 4. Update `curriculum/COURSES-required-by-other-units.md`, the department's reference for which unit requires which of our courses, and change the calendar year in its subtitle and its date.

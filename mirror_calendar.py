@@ -5,7 +5,7 @@
 # mirror_calendar.py — save a copy of UNB's online undergraduate calendar (Fredericton).
 # Usage:
 #   ./mirror_calendar.py OUTDIR
-#       e.g. ./mirror_calendar.py ~/Documents/3work/WIP-DUGS-related/curriculum/academic-calendar/2027-28
+#       e.g. ./mirror_calendar.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"
 #   ./mirror_calendar.py OUTDIR --base URL  mirror an archived year instead of "current"
 #   ./mirror_calendar.py -h | --help
 #
