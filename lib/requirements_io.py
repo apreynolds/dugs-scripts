@@ -353,7 +353,7 @@ def _cell_pass_grade(value, where, path):
     return text
 
 
-def _cell_year(value, where, path):
+def cell_year(value, where, path):
     """Read a Year cell: "3rd/4th (3rd recommended)" -> (3, 4). () if empty or "-".
 
     A cell that does not read as one of the agreed phrases is WARNED about and
@@ -510,7 +510,7 @@ def _load_requirements_sheet(sheet, path):
                 cell(idx_pass),
                 "Requirements row " + str(row_number) + " Pass", path,
             ) if idx_pass is not None else "",
-            years=_cell_year(
+            years=cell_year(
                 cell(idx_year),
                 "Requirements row " + str(row_number) + " Year", path,
             ) if idx_year is not None else (),
