@@ -69,12 +69,15 @@ def main():
 
     edits = {}
 
-    # A category + note + gpa1 flag.
+    # A category + note + gpa1 flag. The category is typed under its OLD
+    # name, as in a tracker made before SciLec became SciBreadth, so this
+    # also pins RENAMED_CATEGORIES in lib/tracker_reader.py: it must come
+    # back under the new name.
     sheet.cell(row=row_a, column=col["Cat. 2020"], value="SciLec")
     sheet.cell(row=row_a, column=col["Notes"],
                value="counts as first-year science")
     sheet.cell(row=row_a, column=col["gpa1"], value=True)
-    edits[(term_a, course_a)] = ("SciLec", "",
+    edits[(term_a, course_a)] = ("SciBreadth", "",
                                 "counts as first-year science", True)
 
     # An Ovr. that moves a course out of its auto-assigned category — the

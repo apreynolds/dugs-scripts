@@ -45,13 +45,13 @@ def make_2027_edition(source, destination):
         sheet.cell(row=row, column=note_col,
                    value=sheet.cell(row=row, column=honours_col).value)
 
-    # 2027 changes: Stat rises to 9 ch, SciLec falls to 15 ch.
+    # 2027 changes: Stat rises to 9 ch, SciBreadth falls to 15 ch.
     for row in range(2, sheet.max_row + 1):
         code = sheet.cell(row=row, column=1).value
         if code == "Stat":
             for column in (honours_col - 1, honours_col, note_col):
                 sheet.cell(row=row, column=column, value=9)
-        if code == "SciLec":
+        if code == "SciBreadth":
             for column in (honours_col - 1, honours_col, note_col):
                 sheet.cell(row=row, column=column, value=15)
 

@@ -61,6 +61,18 @@ def _override(value):
     return LEGACY_OVERRIDES.get(text.lower(), text)
 
 
+# Categories renamed in the requirements workbooks. An advisor typed the old
+# code into trackers made before the rename, and a code the workbook no longer
+# has counts toward nothing, so it is migrated on read, like the overrides.
+# Add a line here whenever a category is renamed (Patrick, 2026-10-21).
+RENAMED_CATEGORIES = {"SciLec": "SciBreadth", "SciLab": "Lab"}
+
+
+def _category(value):
+    text = _text(value)
+    return RENAMED_CATEGORIES.get(text, text)
+
+
 def _number(value):
     if value is None or _text(value) == "":
         return ""
@@ -151,7 +163,7 @@ def read_tracker(path):
         }
         for name, column in cat_columns.items():
             label = name[len(CAT_PREFIX):]
-            row["cat_" + label] = _text(
+            row["cat_" + label] = _category(
                 sheet.cell(row=excel_row, column=column).value)
         if ad_hoc_cat_column is not None:
             row[AD_HOC_CAT_KEY] = _text(

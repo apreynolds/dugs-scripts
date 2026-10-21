@@ -21,8 +21,8 @@ Total CH: Honours	132
 Category	Description	Courses	Major	Honours	Note
 Calc	MATH 1003, MATH 1013	MATH 1003; MATH 1013	6	6
 Sci1001	Sci 1001	SCI 1001	1	1
-SciLec	First Year Science Lectures		18	18
-SciLab	First Year Science Labs		8	8
+SciBreadth	First Year Science Lectures		18	18
+Lab	First Year Science Labs		8	8
 2ndMath	MATH 2003, 2013, 2203, 2213	MATH 2003; MATH 2013; MATH 2203; MATH 2213	12	12
 Stat	STAT 3083, STAT 3093	STAT 3083; STAT 3093	6	6	STAT 2593 can count for 3083 with a grade of B or better
 CS	CS 1003 or 1073	CS 1003; CS 1073	4	4	CS 1003 = Python, CS 1073 = Java. Recommended to take in 1st or 2nd year.

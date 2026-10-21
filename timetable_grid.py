@@ -124,7 +124,7 @@ REQUIRED_FRAME = "2F5597"  # dark blue, the frame round a required course there
 SHORT_MEETING = 60
 
 # The first-year science lectures and labs a BSc chooses among. The workbooks'
-# SciLec and SciLab categories name no courses (an advisor assigns them); this
+# SciBreadth and Lab categories name no courses (an advisor assigns them); this
 # list is from the notes in bsc-mathecon-2026 ("6 of 8 from BIOL 1001/1012,
 # CHEM 1001/1012, ESCI 1052/1041, PHYS 1051/1052"; labs "BIOL 1006/1017, CHEM
 # 1006/1017, ESCI 1057 (or 1026)/1046, PHYS 1091/1092").
