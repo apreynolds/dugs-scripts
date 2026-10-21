@@ -72,10 +72,11 @@
 # (Patrick, 2026-10-21). On each page:
 #   - every course on a light grey fill; a required one framed in blue, an
 #     option (named choices, first-year science, every 3000/4000-level
-#     MATH/STAT course that is not inactive) not framed
+#     MATH/STAT course) not framed
 #   - our courses at their time; one running this year in the other term is
 #     left off; one not running this year at all sits where it last sat in
-#     this term (the master list's timeslot), struck out, "not in YEAR"
+#     this term (the master list's timeslot), struck out, "not in YEAR";
+#     one the master list calls inactive or on hiatus is left off too
 #   - other units' courses in italic; a course with labs and no lecture at its
 #     lab times
 #   - "Honours only" (or "Major only") under a course one track alone requires
@@ -780,10 +781,13 @@ def master_slot(text):
 
 def program_level_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
     offered = set().union(*(term["courses"] for term in plan))  # ours that run, in either term
-    # Every MATH/STAT course on the master list that is not inactive, and its
-    # usual slot, for a course not running this year.
-    master = {k: r for k, r in ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"]).items()
-              if r.get("Status", "").strip().lower() != "inactive"}
+    # Every MATH/STAT course on the master list that is not inactive or on
+    # hiatus, and its usual slot, for a course not running this year. One
+    # that is inactive or on hiatus is left off the grids altogether, even
+    # where a program names it, unless it is in fact running (Patrick, 2026-10-21).
+    records = ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"])
+    dormant = {k for k, r in records.items() if r.get("Status", "").strip().lower() in ("inactive", "hiatus")}
+    master = {k: r for k, r in records.items() if k not in dormant}
     upper = {c for c in master if level(c) == 3}
     not_running = f"not in {data_year}"
     today = datetime.date.today().isoformat()
@@ -831,7 +835,7 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                         if course in term["courses"]:
                             time, moved = our_time(term["courses"][course], args.alternatives)
                             style = "moved" if moved else False
-                        elif course in offered:
+                        elif course in offered or course in dormant:
                             continue
                         else:
                             time = master_slot(master.get(course, {}).get(slot_column))
