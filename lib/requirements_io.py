@@ -53,6 +53,13 @@
 #                absent — so a file with neither behaves exactly as every
 #                file did before this column existed.
 #   Note         optional hover-tooltip text shown in the tracker.
+#   Plan         OPTIONAL. When the category's courses are suggested in the
+#                program: "1st year", "2nd year", "3rd/4th year", "4th year",
+#                and so on, optionally followed by a parenthesis for the
+#                advisor, e.g. "2nd year (but 1st year is possible)". Only the
+#                words before the parenthesis are read. The tracker ignores
+#                it; timetable_grid.py uses it to put each course on the page
+#                for its suggested year.
 #
 #   The categories are NOT required to add up to the declared total. The
 #   difference is free electives, and the "—" category is where they are
@@ -97,7 +104,15 @@ import openpyxl
 # validation for having no "Total CH: Pass" row — loudly, but for a reason
 # that reads as nonsense.
 RESERVED_HEADINGS = {"category", "description", "courses", "note", "notes",
-                     "pass"}
+                     "pass", "plan"}
+
+# The Plan column: the year(s) of the program a category's courses are
+# suggested for, e.g. "2nd year" or "3rd/4th year (but 2nd year is possible)".
+# Only the words before any parenthesis are read; the parenthesis is for the
+# advisor. The tracker ignores the column; timetable_grid.py sorts its pages by it.
+PLAN_YEARS = {"1st": 1, "2nd": 2, "3rd": 3, "4th": 4}
+PLAN_PATTERN = re.compile(r"(1st|2nd|3rd|4th)(\s*/\s*(1st|2nd|3rd|4th))*\s+years?",
+                          flags=re.IGNORECASE)
 
 META_PROGRAM = "program"
 META_EDITION = "edition"
@@ -152,7 +167,7 @@ class Category:
     """One requirement bucket, e.g. "9 ch of third-year MATH"."""
 
     def __init__(self, code, description, course_patterns, req_ch, note,
-                 pass_grade=""):
+                 pass_grade="", plan_years=()):
         self.code = code
         self.description = description
         self.course_patterns = course_patterns  # list of str, may be empty
@@ -166,6 +181,9 @@ class Category:
         # directly, or a blank cell silently becomes a rank of 0 and every
         # grade passes.
         self.pass_grade = pass_grade
+        # tuple of ints, e.g. (3, 4) for "3rd/4th year"; () when the Plan
+        # cell is blank or the column is absent.
+        self.plan_years = plan_years
 
     def __repr__(self):
         return "<Category " + self.code + ">"
@@ -335,6 +353,26 @@ def _cell_pass_grade(value, where, path):
     return text
 
 
+def _cell_plan(value, where, path):
+    """Read a Plan cell: "3rd/4th year (but ...)" -> (3, 4). () if empty.
+
+    A cell that does not read as one of the agreed phrases is WARNED about and
+    treated as blank, not rejected: the Plan column only places courses on the
+    timetable grids, and a typo there must never stop a tracker being built.
+    """
+    text = _cell_text(value).split("(")[0].strip()
+    if text == "":
+        return ()
+    if not PLAN_PATTERN.fullmatch(text):
+        sys.stderr.write(
+            "  note: " + str(path) + ": " + where + " " + repr(_cell_text(value)) +
+            " is not read; write e.g. \"2nd year\" or \"3rd/4th year\",\n"
+            "        with anything else in parentheses after it.\n"
+        )
+        return ()
+    return tuple(sorted({PLAN_YEARS[y.lower()] for y in re.findall(r"1st|2nd|3rd|4th", text, re.I)}))
+
+
 def _split_patterns(text):
     """Split the Courses cell into a list of course patterns.
 
@@ -421,6 +459,7 @@ def _load_requirements_sheet(sheet, path):
     idx_courses = lowered.index("courses")
     idx_note = lowered.index("note") if "note" in lowered else None
     idx_pass = lowered.index("pass") if "pass" in lowered else None
+    idx_plan = lowered.index("plan") if "plan" in lowered else None
 
     # Every remaining non-empty heading is a track name. This is what lets a
     # colleague add a "Co-op" track by adding one column.
@@ -471,6 +510,10 @@ def _load_requirements_sheet(sheet, path):
                 cell(idx_pass),
                 "Requirements row " + str(row_number) + " Pass", path,
             ) if idx_pass is not None else "",
+            plan_years=_cell_plan(
+                cell(idx_plan),
+                "Requirements row " + str(row_number) + " Plan", path,
+            ) if idx_plan is not None else (),
         ))
 
     if not categories:
