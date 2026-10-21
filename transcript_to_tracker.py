@@ -376,6 +376,19 @@ def main(argv=None):
         print("  " + str(blank) + " category cells left blank for you "
               "(Breadth, electives, and anything ambiguous)")
 
+    # A category carried across from the old tracker that the workbook no
+    # longer has (renamed or removed) counts toward nothing, silently. Say so.
+    for requirements in requirement_sets:
+        codes = set(requirements.category_codes())
+        unknown = sorted({row["cat_" + requirements.label] for row in rows
+                          if row.get("cat_" + requirements.label)
+                          and row["cat_" + requirements.label] not in codes})
+        if unknown:
+            print("  WARNING: categories not in " + requirements.label + "'s "
+                  "workbook, so those courses count toward nothing: " +
+                  ", ".join(unknown) + ". Reassign them, or add the old name "
+                  "to RENAMED_CATEGORIES in lib/tracker_reader.py.")
+
     if report["grade_changes"]:
         print()
         print("  Grades changed:")
