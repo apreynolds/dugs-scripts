@@ -33,7 +33,11 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/General/YEAR/`, which must exist:
 
 - `departmental-grids/`: one page per term with every course of ours, and in small grey type under each the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
-- `program-grids-by-level/`: one PDF per degree program, a page per level (1000, 2000, 3000/4000) per term, each day split into Required and Options (named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script).
+- `program-grids-by-level/`: one PDF per degree program, a page per level (1000, 2000, 3000/4000) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
+  Every course sits on a light grey fill; a required one is framed in blue, with "Honours only" (or "Major only") under it when one track alone requires it.
+  The rest are options: named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script.
+  A course of ours not running this year is struck out, "not in YEAR", at the slot it last had.
+  Overlapping courses at different times get a box each, side by side in lanes.
 
 The times come from the newest export of the year in `timetable-exports-by-year`, so the routine is: download the export, then run the script.
 Four passes a year:
