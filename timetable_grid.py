@@ -14,10 +14,10 @@
 #   YEAR            the academic year to draw. Everything is written into the
 #                   Timetable team's folder for that year, which must exist:
 #                     YEAR/departmental-grids/timetable-grid-fall-2026.tex (and winter)
-#                     YEAR/program-grids-by-level/<program>.tex
+#                     YEAR/program-grids/<program>.tex
 #                   each compiled to a PDF beside it with pr-latexmk. Each
 #                   program PDF is also copied to the Advising team, as
-#                   RESOURCES/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf
+#                   RESOURCES/program-grids/YEAR/<program>-DO-NOT-EDIT.pdf
 #                   (not for --draft or --proposal: those are the committee's).
 #   --draft         use LAST year's export: every course of ours at the time it
 #                   had then. For the timetable committee in the fall, before
@@ -70,12 +70,12 @@
 # so STAT 3083 sits with the 2nd-year courses; one with no year there goes
 # by its level, 3000 and 4000 together. A workbook with no Year column gets
 # pages by level, named so; one where some category is 3rd or 4th year
-# alone gets 3rd- and 4th-year pages apart (Patrick, 2026-10-21). (The
-# folder keeps its old name, program-grids-by-level.) Each day is split by
-# length of meeting: 50-minute meetings in one column, 80-minute ones and
-# anything longer (labs) in the other. Two courses in the same column that overlap then almost always
-# share their time exactly, so no times are written: the rows say it
-# (Patrick, 2026-10-21). On each page:
+# alone gets 3rd- and 4th-year pages apart (Patrick, 2026-10-21). Each
+# day is split by length of meeting: 50-minute meetings in one column,
+# 80-minute ones and anything longer (labs) in the other. Two courses in
+# the same column that overlap then almost always share their time
+# exactly, so no times are written: the rows say it (Patrick, 2026-10-21).
+# On each page:
 #   - every course on a light grey fill; a required one framed in blue, an
 #     option (named choices, first-year science, every 3000/4000-level
 #     MATH/STAT course) not framed
@@ -123,9 +123,9 @@ LEVELS = [1, 2, 3]
 LEVEL_NAMES = {1: "1000-level", 2: "2000-level", 3: "3000/4000-level"}
 # One colour per level, light enough to print and to read black text on.
 COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC"}  # blue, green, yellow
-COURSE_FILL = "F2F2F2"  # light grey, behind every course on the by-level pages
+COURSE_FILL = "F2F2F2"  # light grey, behind every course on the program grids
 REQUIRED_FRAME = "2F5597"  # dark blue, the frame round a required course there
-# A meeting this long or shorter goes in the by-level pages' 50-minute
+# A meeting this long or shorter goes in the program grids' 50-minute
 # column; a longer one (80 minutes, a lab) in the other.
 SHORT_MEETING = 60
 
@@ -255,7 +255,7 @@ def place_entries(entries):
     An entry may carry a fifth item, the sub-column it goes in under each day
     ("length": by the length of each meeting, "short" or "long"); without one
     it goes under its level. A sixth, if there is one, boxes the course:
-    "framed" (required) or "plain" (an option), as on the by-level pages.
+    "framed" (required) or "plain" (an option), as on the program grids.
     Returns ({(day, sub-column): [(first row, last row, label, time, small lines,
     start, end, box)]}, latest end time, [entries whose time could not be read]).
     """
@@ -365,7 +365,7 @@ def block_geometry(first, span, row_height):
 
 
 def tex_lanes(first, span, lines, row_height):
-    """A block of boxed courses at different times (the by-level pages), as a TikZ picture.
+    """A block of boxed courses at different times (the program grids), as a TikZ picture.
 
     Courses at the same time share a grey box, which sits at exactly its own
     rows; boxes whose times overlap stand side by side in lanes, the way a
@@ -441,8 +441,8 @@ def tex_brackets(first, span, lines, row_height):
 
 
 # The sub-columns under each day: (key, heading, fill colour, extra cell
-# options). The usual one is a column per level; the by-level pages use a
-# 50-minute and a longer column instead (BY_LEVEL_COLUMNS).
+# options). The usual one is a column per level; the program grids use a
+# 50-minute and a longer column instead (PROGRAM_COLUMNS).
 LEVEL_COLUMNS = [(lvl, LEVEL_NAMES[lvl], f"lvl{lvl}", "") for lvl in LEVELS]
 
 
@@ -530,7 +530,7 @@ def tex_document(pages):
     """The whole .tex file, with comments so it can be read on its own. pages: lists of lines."""
     colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {LEVEL_NAMES[lvl]}"
                         for lvl, c in COLOURS.items())
-    colours += "\n" + rf"\definecolor{{coursefill}}{{HTML}}{{{COURSE_FILL}}}  % behind every course, on the by-level pages"
+    colours += "\n" + rf"\definecolor{{coursefill}}{{HTML}}{{{COURSE_FILL}}}  % behind every course, on the program grids"
     colours += "\n" + rf"\definecolor{{reqframe}}{{HTML}}{{{REQUIRED_FRAME}}}  % the frame of a required course there"
     lines = [
         "% !TeX program = pdflatex",
@@ -576,7 +576,7 @@ def tex_document(pages):
         r"\newcommand{\moved}[1]{\textcolor{BrickRed}{#1}}",
         r"\newcommand{\leftslot}[1]{\textcolor{black!45}{\sout{#1}}}",
         "",
-        "% The by-level pages: a course of ours not running this year, struck out;",
+        "% The program grids: a course of ours not running this year, struck out;",
         "% every course in a box the width of its cell, a required one framed in",
         "% blue, an option framed in the fill colour, so both take the same room.",
         r"\newcommand{\notrunning}[1]{\sout{#1}}",
@@ -762,10 +762,10 @@ def department_grid(term, programs, others, folder, suffix, args, describe):
 
 
 # ----------------------------------------------------------------------------
-# The program grids by level: a page per level per term, 50-minute and longer
+# The program grids: a page per program year per term, 50-minute and longer
 # meetings side by side under each day
 # ----------------------------------------------------------------------------
-BY_LEVEL_COLUMNS = [
+PROGRAM_COLUMNS = [
     ("short", "50 min", "coursefill", ""),
     ("long", "80 min, labs", "coursefill", ""),
 ]
@@ -808,7 +808,7 @@ def page_name(program, page_years):
     return "/".join(YEAR_WORDS[y] for y in page_years) + "-year"
 
 
-def program_level_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
+def program_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
     offered = set().union(*(term["courses"] for term in plan))  # ours that run, in either term
     # Every MATH/STAT course on the master list that is not inactive or on
     # hiatus, and its usual slot, for a course not running this year. One
@@ -880,7 +880,7 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                         entries.append((course, time, small, True, "length", box))
                 if not entries:
                     continue  # nothing for this year this term
-                spec = BY_LEVEL_COLUMNS
+                spec = PROGRAM_COLUMNS
                 name = page_name(program, page_years)
                 footer = (f"{program['title']}, {name} courses: under each day, 50-minute meetings "
                           "in the first column and longer ones (80 minutes, labs) in the second. "
@@ -971,9 +971,9 @@ def main():
         if mode == "export" and paths.PROGRAM_GRIDS_COPY.is_dir():
             args.copy_to = paths.PROGRAM_GRIDS_COPY / args.year
             args.copy_to.mkdir(exist_ok=True)
-        out = folder / "program-grids-by-level"
+        out = folder / "program-grids"
         out.mkdir(exist_ok=True)
-        program_level_grids(plan, programs, offerings, covered, out, suffix, args, describe, data_year)
+        program_grids(plan, programs, offerings, covered, out, suffix, args, describe, data_year)
 
 
 if __name__ == "__main__":

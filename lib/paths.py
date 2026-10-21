@@ -39,4 +39,4 @@ ADVISING_TIMETABLE = ADVISING_RESOURCES / "advising-timetable.xlsx"
 # Copies made for the Advising team of files whose home is another team's
 # folder. Named -DO-NOT-EDIT; the README in RESOURCES says why.
 MASTER_LIST_COPY = ADVISING_RESOURCES / "COURSES-math-stat-DO-NOT-EDIT.xlsx"
-PROGRAM_GRIDS_COPY = ADVISING_RESOURCES / "program-grids-by-level"  # a folder per year
+PROGRAM_GRIDS_COPY = ADVISING_RESOURCES / "program-grids"  # a folder per year

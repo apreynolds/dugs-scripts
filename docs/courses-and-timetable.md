@@ -33,7 +33,7 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/General/YEAR/`, which must exist:
 
 - `departmental-grids/`: one page per term with every course of ours, and in small grey type under each the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
-- `program-grids-by-level/`: one PDF per degree program, a page per program year (1st, 2nd, 3rd/4th) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
+- `program-grids/`: one PDF per degree program, a page per program year (1st, 2nd, 3rd/4th) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
   Each course goes on the page for the year its category's `Year` cell suggests (`lib/programs.py: suggested_years`), and on every page of a range like 3rd/4th.
   A course with no year (in no category, or one marked `-`) goes by its level instead, 3000 and 4000 to 3rd/4th, and a workbook with no `Year` column gets the old pages by level, named so.
   If any category names 3rd or 4th year alone, the program gets separate 3rd- and 4th-year pages.
@@ -53,7 +53,7 @@ Four passes a year:
 | August | `uv run timetable_grid.py 2027-28` | Next year again, nearer the start of term |
 
 - `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes, into files named `-proposed-alternative`.
-- The program grids drawn from an export are also copied to the Advising team, as `RESOURCES/program-grids-by-level/YEAR/<program>-DO-NOT-EDIT.pdf`. Drafts and proposals are not: they are the committee's.
+- The program grids drawn from an export are also copied to the Advising team, as `RESOURCES/program-grids/YEAR/<program>-DO-NOT-EDIT.pdf`. Drafts and proposals are not: they are the committee's.
 - `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only (and so makes no copy).
 - Whether next year's timetable reaches Informer as soon as the registrar releases it is not known yet (October 2026).
 
