@@ -65,23 +65,29 @@
 #
 # THE PROGRAM GRIDS BY LEVEL
 # For each degree-requirements workbook, a page per level (1000, 2000,
-# 3000/4000) per term, each day split into Required and Options:
+# 3000/4000) per term, each day split by length of meeting: 50-minute
+# meetings in one column, 80-minute ones and anything longer (labs) in the
+# other. Two courses in the same column that overlap then almost always
+# share their time exactly, so no times are written: the rows say it
+# (Patrick, 2026-10-21). On each page:
+#   - every course on a light grey fill; a required one framed in blue, an
+#     option (named choices, first-year science, every 3000/4000-level
+#     MATH/STAT course) not framed
 #   - our courses at their time; one running this year in the other term is
 #     left off; one not running this year at all sits where it last sat in
-#     this term (the master list's timeslot), marked "not in YEAR"
-#   - a brief note from the master list's Offering note: "alternate years",
-#     "occasional", ...
+#     this term (the master list's timeslot), struck out, "not in YEAR";
+#     one the master list calls inactive or on hiatus is left off too
 #   - other units' courses in italic; a course with labs and no lecture at its
 #     lab times
 #   - "Honours only" (or "Major only") under a course one track alone requires
-#   - Options: named choices, first-year science (FIRST_YEAR_SCIENCE), and
-#     every 3000/4000-level MATH/STAT course that is not inactive
+#   - nothing else under a course
 #
 # IN BOTH
 #   - Tutorials and labs of our courses are left out.
 #   - A course whose sections meet at different times appears at each.
-#   - Courses at the same level whose times overlap share one block, which
-#     spans all of them; the times are written out when they differ.
+#   - Courses in the same column whose times overlap share one block, which
+#     spans all of them; the times are written out (and bracketed) only when
+#     they differ.
 #   - MATH 0863, a pre-university course, goes in the 1000-level column.
 #
 # This script borrows its requirements reading from lib/programs.py and its
@@ -111,7 +117,11 @@ LEVELS = [1, 2, 3]
 LEVEL_NAMES = {1: "1000-level", 2: "2000-level", 3: "3000/4000-level"}
 # One colour per level, light enough to print and to read black text on.
 COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC"}  # blue, green, yellow
-OPTION_FILL = "F2F2F2"  # light grey, for the Options column of the by-level pages
+COURSE_FILL = "F2F2F2"  # light grey, behind every course on the by-level pages
+REQUIRED_FRAME = "2F5597"  # dark blue, the frame round a required course there
+# A meeting this long or shorter goes in the by-level pages' 50-minute
+# column; a longer one (80 minutes, a lab) in the other.
+SHORT_MEETING = 60
 
 # The first-year science lectures and labs a BSc chooses among. The workbooks'
 # SciLec and SciLab categories name no courses (an advisor assigns them); this
@@ -236,29 +246,35 @@ def required_by(programs, course):
 def place_entries(entries):
     """Sort entries into the grid.
 
-    An entry may carry a fifth item, the sub-column it goes in under each day;
-    without one it goes under its level.
-    Returns ({(day, sub-column): [(first row, last row, label, time, small lines)]},
-    latest end time, [entries whose time could not be read]).
+    An entry may carry a fifth item, the sub-column it goes in under each day
+    ("length": by the length of each meeting, "short" or "long"); without one
+    it goes under its level. A sixth, if there is one, boxes the course:
+    "framed" (required) or "plain" (an option), as on the by-level pages.
+    Returns ({(day, sub-column): [(first row, last row, label, time, small lines,
+    start, end, box)]}, latest end time, [entries whose time could not be read]).
     """
     placed = defaultdict(list)
     skipped = []
     latest = FIRST_ROW_TIME
-    for key, time, small, style, *column in entries:
-        column = column[0] if column else level(key)
+    for key, time, small, style, *extra in entries:
+        column = extra[0] if extra else level(key)
+        box = extra[1] if len(extra) > 1 else None
         options = pg.parse_options(time)
         if not options:
             skipped.append(f"{bc.course_display(key)} {time!r}")
             continue
         label = bc.course_display(key)
         # style: True or "italic" (another unit's course), "moved" (at its new
-        # time), "left" (its old slot, struck out), or False.
+        # time), "left" (its old slot, struck out), "notrunning" (not this
+        # year, struck out), or False.
         if style is True or style == "italic":
             label = rf"\textit{{{label}}}"
         elif style == "moved":
             label = rf"\moved{{{label}}}"
         elif style == "left":
             label = rf"\leftslot{{{label}}}"
+        elif style == "notrunning":
+            label = rf"\notrunning{{{label}}}"
         for option in options:
             for day, start, end in option:
                 if day not in dict(DAYS):
@@ -266,8 +282,11 @@ def place_entries(entries):
                 # A row covers [t, t + 30); the course fills every row it touches.
                 first = (start - FIRST_ROW_TIME) // STEP
                 last = (end - 1 - FIRST_ROW_TIME) // STEP
-                placed[(day, column)].append(
-                    (first, last, label, f"{time_text(start)}-{time_text(end)}", small, start, end))
+                where = column
+                if column == "length":
+                    where = "short" if end - start <= SHORT_MEETING else "long"
+                placed[(day, where)].append(
+                    (first, last, label, f"{time_text(start)}-{time_text(end)}", small, start, end, box))
                 latest = max(latest, end)
     return placed, latest, skipped
 
@@ -275,7 +294,7 @@ def place_entries(entries):
 def blocks_in(items):
     """Group one column's courses into blocks: courses whose rows overlap share a block.
 
-    Returns [(first row, last row, [(course text, [small lines], start, end)],
+    Returns [(first row, last row, [(course text, [small lines], start, end, box)],
     same time?)]; start and end are minutes after midnight.
     """
     groups = []
@@ -289,12 +308,93 @@ def blocks_in(items):
     for group in groups:
         same_time = len({x[3] for x in group}) == 1
         lines = []
-        for _, _, label, time, small, start, end in sorted(group, key=lambda x: (x[5], x[6])):
-            line = (label if same_time else f"{label} {time}", small, start, end)
+        # Required courses (framed) before options, then by time.
+        for _, _, label, time, small, start, end, box in sorted(
+                group, key=lambda x: (x[7] != "framed", x[5], x[6])):
+            # Times are written out only on the department grid; a boxed
+            # course sits at its own rows instead (tex_lanes).
+            line = (label if same_time or box else f"{label} {time}", small, start, end, box)
             if line not in lines:
                 lines.append(line)
         blocks.append((min(x[0] for x in group), max(x[1] for x in group), lines, same_time))
     return blocks
+
+
+def tex_course(course, small, box):
+    """One course in a block: its name, its small grey lines right under it
+    (\\progs, defined in the preamble), boxed if box is "framed" or "plain"."""
+    text = course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
+    # A box is set inline, so it needs its own \par, or the next sits beside it.
+    if box == "framed":
+        return rf"\reqcourse{{{text}}}\par"
+    if box == "plain":
+        return rf"\optcourse{{{text}}}\par"
+    return text
+
+
+def slot_end(end):
+    """A course's end, rounded up to the next half-hour line: a 50-minute class
+    covers its 60 minutes, an 80-minute one its 90."""
+    return FIRST_ROW_TIME + -(-(end - FIRST_ROW_TIME) // STEP) * STEP
+
+
+def block_geometry(first, span, row_height):
+    """For a block drawn as a TikZ picture: (depth, height, middle), as LaTeX.
+
+    depth(minutes) is how far below the top of the cell's content a time
+    falls; height is the whole block's; middle is half of it.
+    """
+    top = FIRST_ROW_TIME + first * STEP  # the time at the block's top edge
+    # A row is taller than its ht by its rowsep above and below (1pt each)
+    # and its rule (0.3pt); the cell's content starts 1pt below the rule.
+    extra_pt = 2.3
+
+    def depth(minutes):
+        rows = max(0.0, min(span, (minutes - top) / STEP))
+        return f"{rows * row_height:.2f}mm+{rows * extra_pt - 1:.2f}pt"
+
+    height = f"{span * row_height:.2f}mm+{span * extra_pt - 2:.2f}pt"
+    middle = f"{span * row_height / 2:.2f}mm+{(span * extra_pt - 2) / 2:.2f}pt"
+    return depth, height, middle
+
+
+def tex_lanes(first, span, lines, row_height):
+    """A block of boxed courses at different times (the by-level pages), as a TikZ picture.
+
+    Courses at the same time share a grey box, which sits at exactly its own
+    rows; boxes whose times overlap stand side by side in lanes, the way a
+    calendar shows a busy day. No time needs writing: the rows say it.
+    """
+    depth, height, _ = block_geometry(first, span, row_height)
+    times = {}  # (start, end) -> its courses, in the block's order
+    for course, small, start, end, box in lines:
+        times.setdefault((start, slot_end(end)), []).append(tex_course(course, small, box))
+    # Each box takes the first lane that is free by its start, so two
+    # boxes share a lane whenever they can, and there are as few as can be.
+    lane_ends, lane_of = [], {}
+    for start, end in sorted(times):
+        lane = next((i for i, e in enumerate(lane_ends) if e <= start), len(lane_ends))
+        if lane == len(lane_ends):
+            lane_ends.append(end)
+        else:
+            lane_ends[lane] = end
+        lane_of[(start, end)] = lane
+    share = 1 / len(lane_ends)  # of the cell's width, per lane
+    draw = []
+    for (start, end), parts in times.items():
+        left = lane_of[(start, end)] * share
+        # The box stops 0.4mm short of each edge, so neighbours stay apart.
+        # {-(...)}: the minus must cover both parts of a depth, mm and pt.
+        draw.append(rf"\fill[coursefill] ({left:.4f}\cellw+0.4mm,{{-({depth(start)})-0.4mm}}) rectangle "
+                    rf"({left + share:.4f}\cellw-0.4mm,{{-({depth(end)})+0.4mm}});")
+        draw.append(rf"\node[inner sep=0pt] at ({left + share / 2:.4f}\cellw,{{-({depth((start + end) / 2)})}}) "
+                    rf"{{\begin{{minipage}}{{\dimexpr{share:.4f}\cellw-1.6mm\relax}}\centering "
+                    + r"\vspace{3pt}".join(parts) + r"\end{minipage}};")
+    # As in tex_brackets: \cellw is the cell's width, and the baseline sits
+    # at the middle so the rows do not grow.
+    return (r"\setlength{\cellw}{\linewidth}\begin{tikzpicture}[baseline=(current bounding box.center)]"
+            rf"\useasboundingbox (0,0) rectangle (\cellw,{{-({height})}});"
+            + "".join(draw) + r"\end{tikzpicture}")
 
 
 def tex_brackets(first, span, lines, row_height):
@@ -306,26 +406,12 @@ def tex_brackets(first, span, lines, row_height):
     on a side already used steps in a little, so two never sit on top of
     each other.
     """
-    top = FIRST_ROW_TIME + first * STEP  # the time at the block's top edge
-    # A row is taller than its ht by its rowsep above and below (1pt each)
-    # and its rule (0.3pt); the cell's content starts 1pt below the rule.
-    extra_pt = 2.3
-
-    def depth(minutes):
-        """How far below the top of the cell's content a time falls, as LaTeX."""
-        rows = max(0.0, min(span, (minutes - top) / STEP))
-        return f"{rows * row_height:.2f}mm+{rows * extra_pt - 1:.2f}pt"
-
-    height = f"{span * row_height:.2f}mm+{span * extra_pt - 2:.2f}pt"
-    middle = f"{span * row_height / 2:.2f}mm+{(span * extra_pt - 2) / 2:.2f}pt"
+    depth, height, middle = block_geometry(first, span, row_height)
     draw = []
-    for i, (_, _, start, end) in enumerate(lines):
+    for i, (_, _, start, end, _) in enumerate(lines):
         inset = 0.5 + (i // 2) * 1.5  # mm in from the cell edge
         tick = 1.2  # mm: the bracket's top and bottom arms
-        # The bracket covers the whole slot: a 50-minute class its 60 minutes,
-        # an 80-minute one its 90, so it ends on a half-hour line.
-        slot_end = FIRST_ROW_TIME + -(-(end - FIRST_ROW_TIME) // STEP) * STEP
-        y1, y2 = depth(start), depth(slot_end)
+        y1, y2 = depth(start), depth(slot_end(end))
         if i % 2 == 0:  # left: [
             x, arm = f"{inset}mm", f"{inset + tick}mm"
         else:  # right: ]
@@ -333,8 +419,7 @@ def tex_brackets(first, span, lines, row_height):
         # {-(...)}: the minus must cover both parts, mm and pt.
         draw.append(rf"\draw[bracket] ({arm},{{-({y1})}}) -- ({x},{{-({y1})}}) -- "
                     rf"({x},{{-({y2})}}) -- ({arm},{{-({y2})}});")
-    text = r"\vspace{3pt}".join(course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
-                                for course, small, _, _ in lines)
+    text = r"\vspace{3pt}".join(tex_course(course, small, box) for course, small, _, _, box in lines)
     # The text goes in a centred minipage, so it is set exactly as in any
     # other block (same font, same paragraphs), just with room for brackets.
     # \cellw holds the cell's width, taken before the picture starts: inside
@@ -351,7 +436,7 @@ def tex_brackets(first, span, lines, row_height):
 
 # The sub-columns under each day: (key, heading, fill colour, extra cell
 # options). The usual one is a column per level; the by-level pages use a
-# Required and an Options column instead.
+# 50-minute and a longer column instead (BY_LEVEL_COLUMNS).
 LEVEL_COLUMNS = [(lvl, LEVEL_NAMES[lvl], f"lvl{lvl}", "") for lvl in LEVELS]
 
 
@@ -366,16 +451,20 @@ def tex_grid(placed, rows, spec, row_height):
             col = d * len(spec) + i
             for first, last, lines, same_time in blocks_in(placed.get((day, key), [])):
                 span = last - first + 1
+                if not same_time and lines[0][4]:
+                    # Boxed courses at different times: each time its own
+                    # box, in lanes; the boxes carry the fill, not the cell.
+                    cells[first][col] = (rf"\SetCell[r={span}]{{}} "
+                                         + tex_lanes(first, span, lines, row_height))
+                    continue
                 if not same_time:
                     # Courses at different times: brackets show each one's span.
                     cells[first][col] = (rf"\SetCell[r={span}]{{bg={fill}{extra}}} "
                                          + tex_brackets(first, span, lines, row_height))
                     continue
-                # Each course is its own paragraph, with its small grey lines
-                # right under it (\progs, defined in the preamble), and a
-                # little space before the next course.
-                parts = [course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
-                         for course, small, _, _ in lines]
+                # Each course is its own paragraph, with a little space
+                # before the next.
+                parts = [tex_course(course, small, box) for course, small, _, _, box in lines]
                 cells[first][col] = rf"\SetCell[r={span}]{{bg={fill}{extra}}} " + r"\vspace{3pt}".join(parts)
     body = []
     for r in range(rows):
@@ -435,7 +524,8 @@ def tex_document(pages):
     """The whole .tex file, with comments so it can be read on its own. pages: lists of lines."""
     colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {LEVEL_NAMES[lvl]}"
                         for lvl, c in COLOURS.items())
-    colours += "\n" + rf"\definecolor{{optfill}}{{HTML}}{{{OPTION_FILL}}}  % options, on the by-level pages"
+    colours += "\n" + rf"\definecolor{{coursefill}}{{HTML}}{{{COURSE_FILL}}}  % behind every course, on the by-level pages"
+    colours += "\n" + rf"\definecolor{{reqframe}}{{HTML}}{{{REQUIRED_FRAME}}}  % the frame of a required course there"
     lines = [
         "% !TeX program = pdflatex",
         "% GENERATED by timetable_grid.py (~/3work/dugs-scripts). Do not edit:",
@@ -479,6 +569,15 @@ def tex_document(pages):
         r"\usepackage[normalem]{ulem}",
         r"\newcommand{\moved}[1]{\textcolor{BrickRed}{#1}}",
         r"\newcommand{\leftslot}[1]{\textcolor{black!45}{\sout{#1}}}",
+        "",
+        "% The by-level pages: a course of ours not running this year, struck out;",
+        "% every course in a box the width of its cell, a required one framed in",
+        "% blue, an option framed in the fill colour, so both take the same room.",
+        r"\newcommand{\notrunning}[1]{\sout{#1}}",
+        r"\newcommand{\coursebox}[2]{{\setlength{\fboxsep}{1.5pt}\setlength{\fboxrule}{0.8pt}%",
+        r"  \fcolorbox{#1}{coursefill}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{\centering #2}}}}",
+        r"\newcommand{\reqcourse}[1]{\coursebox{reqframe}{#1}}",
+        r"\newcommand{\optcourse}[1]{\coursebox{coursefill}{#1}}",
         "",
         r"\pagestyle{empty} % no page number",
         r"\setlength{\parindent}{0pt}",
@@ -657,12 +756,12 @@ def department_grid(term, programs, others, folder, suffix, args, describe):
 
 
 # ----------------------------------------------------------------------------
-# The program grids by level: a page per level per term, Required and Options
-# side by side under each day
+# The program grids by level: a page per level per term, 50-minute and longer
+# meetings side by side under each day
 # ----------------------------------------------------------------------------
 BY_LEVEL_COLUMNS = [
-    ("req", "Required", "lvl{level}", ""),
-    ("opt", "Options", "optfill", ", fg=black!60"),  # grey text: a choice, not a requirement
+    ("short", "50 min", "coursefill", ""),
+    ("long", "80 min, labs", "coursefill", ""),
 ]
 
 
@@ -680,31 +779,15 @@ def master_slot(text):
     return " | ".join(pieces)
 
 
-def offering_word(record):
-    """The master list's Offering note and Status, made brief: 'alternate years', 'occasional'.
-
-    Blank means every year in the same term, which needs no note.
-    """
-    if record.get("Status", "").strip().lower() == "hiatus":
-        return "on hiatus"
-    note = record.get("Offering note", "").strip()
-    if note.startswith("alternate years"):
-        return "alternate years"
-    match = re.match(r"(\d) of last \d+ years", note)
-    if match:
-        times = int(match[1])
-        return "most years" if times >= 5 else "some years" if times >= 3 else "occasional"
-    if note.startswith("not since"):
-        return note
-    return ""  # blank, '-', or 'every year since ...': runs every year now
-
-
 def program_level_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
     offered = set().union(*(term["courses"] for term in plan))  # ours that run, in either term
-    # Every MATH/STAT course on the master list that is not inactive: its
-    # offering note, and its usual slot for a course not running this year.
-    master = {k: r for k, r in ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"]).items()
-              if r.get("Status", "").strip().lower() != "inactive"}
+    # Every MATH/STAT course on the master list that is not inactive or on
+    # hiatus, and its usual slot, for a course not running this year. One
+    # that is inactive or on hiatus is left off the grids altogether, even
+    # where a program names it, unless it is in fact running (Patrick, 2026-10-21).
+    records = ba.sheet_records(load_workbook(bc.DEFAULT_OUTPUT, data_only=True)["MAIN"])
+    dormant = {k for k, r in records.items() if r.get("Status", "").strip().lower() in ("inactive", "hiatus")}
+    master = {k: r for k, r in records.items() if k not in dormant}
     upper = {c for c in master if level(c) == 3}
     not_running = f"not in {data_year}"
     today = datetime.date.today().isoformat()
@@ -724,7 +807,7 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
             options |= {c for c in FIRST_YEAR_SCIENCE if c not in required}
         # Our courses that only a pattern like MATH 3*** catches are
         # electives, and every upper-level course of ours is shown too:
-        # all of them go under Options.
+        # all of them are options.
         electives = {c for c in master if any((r := pg.role_in(e, c)) and r[0] == "elective"
                                               for e in program["tracks"].values())}
 
@@ -738,7 +821,9 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                 for course in sorted(set(required) | options | electives | upper):
                     if level(course) != lvl:
                         continue
-                    column = "req" if course in required else "opt"
+                    box = "framed" if course in required else "plain"
+                    # Under a course: which track alone requires it, and
+                    # whether it is not running this year. Nothing else.
                     small = []
                     if course in required and len(required[course]) < len(program["tracks"]):
                         small.append(" and ".join(required[course]) + " only")
@@ -746,32 +831,33 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                         # Running this term: its time. Running this year but
                         # the other term: not on this page. Not running this
                         # year at all: where it last sat in this season.
-                        word = offering_word(master.get(course, {}))
+                        style = False
                         if course in term["courses"]:
                             time, moved = our_time(term["courses"][course], args.alternatives)
-                            word = "; ".join(w for w in (moved, word) if w)
-                        elif course in offered:
+                            style = "moved" if moved else False
+                        elif course in offered or course in dormant:
                             continue
                         else:
                             time = master_slot(master.get(course, {}).get(slot_column))
-                            word = "; ".join(w for w in (word, not_running) if w)
+                            style = "notrunning"
+                            small.append(not_running)
                         if not pg.parse_options(time):
                             continue  # no set time (a thesis), or never in this season
-                        entries.append((course, time, small + ([word] if word else []), False, column))
+                        entries.append((course, time, small, style, "length", box))
                         continue
                     found = other_time(offerings, course, term["data"], season_terms)
                     if found:
-                        time, note = found
-                        entries.append((course, time, small + ([note] if note else []), True, column))
+                        time, _ = found
+                        entries.append((course, time, small, True, "length", box))
                 if not entries:
                     continue  # nothing at this level this term
-                spec = [(k, h, f.format(level=lvl), x) for k, h, f, x in BY_LEVEL_COLUMNS]
-                footer = (f"{program['title']}, {LEVEL_NAMES[lvl]} courses: required ones in the first column "
-                          "under each day; options in grey in the second (named choices, first-year science, "
-                          "and every 3000/4000-level MATH/STAT course). "
-                          f"{describe} A course of ours not running in {data_year} sits at the slot it last "
-                          f"had in this term, marked ``{not_running}''. Notes such as ``alternate years'' or "
-                          "``occasional'' come from the master course list. Other units' courses are in italic"
+                spec = BY_LEVEL_COLUMNS
+                footer = (f"{program['title']}, {LEVEL_NAMES[lvl]} courses: under each day, 50-minute meetings "
+                          "in the first column and longer ones (80 minutes, labs) in the second. "
+                          "Required courses are framed in blue; the rest are options (named choices, "
+                          "first-year science, and every 3000/4000-level MATH/STAT course). "
+                          f"{describe} A course of ours not running in {data_year} is struck out, at the slot "
+                          "it last had in this term. Other units' courses are in italic"
                           + ("" if term["data"] in season_terms else
                              ", at the time they had the last time they ran in person in this term")
                           + ". A course with sections at different times (or a lab) appears at each: choose one. "
@@ -780,7 +866,7 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                 if args.label != "timetable":
                     heading += f" ({args.label})"
                 if args.alternatives:
-                    footer += " Every alternative time is taken: a course that moved says ``alternative; was''."
+                    footer += " Every alternative time is taken: a course that moved is in red."
                 page, _ = tex_page(heading, entries, footer, spec)
                 pages.append(page)
         output = folder / f"{program['name']}{suffix}.tex"
