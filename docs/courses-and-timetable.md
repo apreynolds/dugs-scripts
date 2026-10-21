@@ -29,11 +29,13 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 
 ## The timetable grids
 
-`timetable_grid.py YEAR` draws a year's timetable as week grids: landscape ledger PDFs, via `pr-latexmk`, with days across, each split by course level, half-hour rows, coloured by level.
+`timetable_grid.py YEAR` draws a year's timetable as week grids: landscape ledger PDFs, via `pr-latexmk`, with days across and half-hour rows.
+Each day is split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing, and each course is a box.
 It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/General/YEAR/`, which must exist:
 
-- `departmental-grids/`: one page per term with every course of ours, and in small grey type under each the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
-- `program-grids/`: one PDF per degree program, a page per program year (1st, 2nd, 3rd/4th) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
+- `departmental-grids/`: one PDF per term. Page 1 has every course of ours, each in a tight box filled with its level's colour (1000, 2000, 3000/4000), so courses at the same time sit side by side.
+  Page 2 lists, for each course, the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
+- `program-grids/`: one PDF per degree program, a page per program year (1st, 2nd, 3rd/4th) per term.
   Each course goes on the page for the year its category's `Year` cell suggests (`lib/programs.py: suggested_years`), and on every page of a range like 3rd/4th.
   A course with no year (in no category, or one marked `-`) goes by its level instead, 3000 and 4000 to 3rd/4th, and a workbook with no `Year` column gets the old pages by level, named so.
   If any category names 3rd or 4th year alone, the program gets separate 3rd- and 4th-year pages.
