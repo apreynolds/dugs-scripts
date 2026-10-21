@@ -15,6 +15,10 @@
 #   option     the category needs fewer hours than its courses offer, so a
 #              student picks some (MathOpt, "MATH 3003 or 3103")
 #   elective   the course is only caught by a pattern like MATH 3***
+#
+# A workbook's optional Year column says when each category's courses are
+# suggested in the program ("2nd", "3rd/4th"); requirements_io.cell_year
+# reads it, and suggested_years() looks up a course's.
 
 import re
 import sys
@@ -25,6 +29,7 @@ from openpyxl import load_workbook
 
 import build_advising as ba
 import build_courses as bc
+import requirements_io  # from lib/, beside this file
 
 OURS = ("MATH", "STAT", "DATA")
 
@@ -128,8 +133,11 @@ def read_programs(folder, aliases, live, hours_of):
     """Read every requirements workbook into the role each course plays.
 
     Returns a list of programs, each {"name", "title", "tracks": {track: {"exact":
-    {course: [(role, category, need)]}, "wild": [(pattern, category)]}}}.
-    need is roughly how many of the category's courses a student takes.
+    {course: [(role, category, need)]}, "wild": [(pattern, category)]}},
+    "years": {category: (year, ...)}}.
+    need is roughly how many of the category's courses a student takes;
+    years are the Year column's, e.g. (3, 4) for "3rd/4th", and only the
+    categories with one are in it.
     """
     programs = []
     for path in sorted(Path(folder).glob("*.xlsx")):
@@ -150,10 +158,17 @@ def read_programs(folder, aliases, live, hours_of):
         rows = book["Requirements"].iter_rows(values_only=True)
         header = [str(h).strip() if h is not None else "" for h in next(rows, [])]
         program = {"name": re.sub(r"-\d{4}$", "", path.stem), "title": title,
-                   "tracks": {t: {"exact": defaultdict(list), "wild": []} for t in tracks}}
-        for row in rows:
+                   "tracks": {t: {"exact": defaultdict(list), "wild": []} for t in tracks},
+                   "years": {}}
+        # The Year heading, in whatever case it was typed.
+        year_heading = next((h for h in header if h.lower() == "year"), None)
+        for number, row in enumerate(rows, start=2):
             record = dict(zip(header, row))
             category = str(record.get("Category") or "").strip()
+            if year_heading:
+                years = requirements_io.cell_year(record.get(year_heading), f"Requirements row {number} Year", path)
+                if years:
+                    program["years"][category] = years
             text = str(record.get("Courses") or "")
             exact = []
             for subject, number in ba.CODE.findall(text):
@@ -216,6 +231,22 @@ def load_programs(requirements, advising, timetables, extra_live=()):
             pass
     programs = read_programs(requirements, aliases, live, hours_of)
     return programs, offerings, terms, tt_files, live
+
+
+def suggested_years(program, course):
+    """The years a program suggests a course for, from its categories' Year cells: e.g. (2,).
+
+    The categories that name the course outright, on any track; if none does,
+    those whose pattern (MATH 3***) catches it, as in the tracker. A course in
+    two categories is suggested for the years of both. () when no category has
+    a year for it (not in one, or "-"): the caller falls back on its level.
+    """
+    tracks = program["tracks"].values()
+    categories = {category for entry in tracks for _, category, _ in entry["exact"].get(course, [])}
+    if not categories:
+        categories = {category for entry in tracks for pattern, category in entry["wild"]
+                      if pattern.fullmatch(course)}
+    return tuple(sorted({year for c in categories for year in program["years"].get(c, ())}))
 
 
 def role_in(track_entry, course):
