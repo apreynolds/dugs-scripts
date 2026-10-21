@@ -1,14 +1,13 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = ["openpyxl"]
 # ///
 # blank_tracker.py — build an empty degree tracker from a requirements file.
 # Usage:
-#   ./blank_tracker.py -r REQUIREMENTS.xlsx -o OUT.xlsx
-#   ./blank_tracker.py -r REQ-2020.xlsx -r REQ-2027.xlsx -o OUT.xlsx
-#   ./blank_tracker.py -r REQ.xlsx -t Honours -n "Last, First" --id 1234567
-#   ./blank_tracker.py --ad-hoc -o OUT.xlsx
-#   ./blank_tracker.py -h | --help
+#   uv run blank_tracker.py -r REQUIREMENTS.xlsx -o OUT.xlsx
+#   uv run blank_tracker.py -r REQ-2020.xlsx -r REQ-2027.xlsx -o OUT.xlsx
+#   uv run blank_tracker.py -r REQ.xlsx -t Honours -n "Last, First" --id 1234567
+#   uv run blank_tracker.py --ad-hoc -o OUT.xlsx
+#   uv run blank_tracker.py -h | --help
 #
 #   -r, --requirements    degree-requirements workbook; repeat the flag to put
 #                         two or more editions side by side in one tracker

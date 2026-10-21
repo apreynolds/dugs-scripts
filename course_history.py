@@ -1,12 +1,11 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = []
 # ///
 # course_history.py — which calendar years had an entry for each MATH/STAT course.
 # Usage:
-#   ./course_history.py
-#   ./course_history.py --root DIR --out FILE.tsv
-#   ./course_history.py -h | --help
+#   uv run course_history.py
+#   uv run course_history.py --root DIR --out FILE.tsv
+#   uv run course_history.py -h | --help
 #
 #   --root   the academic-calendar folder (default: CALENDAR in lib/paths.py)
 #   --out    the file to write (default: ROOT/course-history.tsv)

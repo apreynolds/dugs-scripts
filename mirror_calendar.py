@@ -1,13 +1,12 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = []
 # ///
 # mirror_calendar.py — save a copy of UNB's online undergraduate calendar (Fredericton).
 # Usage:
-#   ./mirror_calendar.py OUTDIR
-#       e.g. ./mirror_calendar.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"
-#   ./mirror_calendar.py OUTDIR --base URL  mirror an archived year instead of "current"
-#   ./mirror_calendar.py -h | --help
+#   uv run mirror_calendar.py OUTDIR
+#       e.g. uv run mirror_calendar.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2027-28"
+#   uv run mirror_calendar.py OUTDIR --base URL  mirror an archived year instead of "current"
+#   uv run mirror_calendar.py -h | --help
 #
 #   OUTDIR        folder to write into. Two subfolders are made:
 #                   html/   each page exactly as the server sent it

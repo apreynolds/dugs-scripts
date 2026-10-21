@@ -1,13 +1,12 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = ["openpyxl"]
 # ///
 # build_advising.py — build the advising timetable: when the courses our students take usually run.
 # Usage:
-#   ./build_advising.py                     rebuild the advising timetable in place
-#   ./build_advising.py -o OUT.xlsx         write a trial copy somewhere else
-#   ./build_advising.py --previous OLD.xlsx -o OUT.xlsx
-#   ./build_advising.py -h | --help
+#   uv run build_advising.py                     rebuild the advising timetable in place
+#   uv run build_advising.py -o OUT.xlsx         write a trial copy somewhere else
+#   uv run build_advising.py --previous OLD.xlsx -o OUT.xlsx
+#   uv run build_advising.py -h | --help
 #
 #   -o, --output        workbook to write (default: advising-timetable.xlsx in
 #                       TEAM-ADVISING/RESOURCES). Always written from scratch.

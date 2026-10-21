@@ -1,13 +1,12 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = []
 # ///
 # sweep_references.py — find every mention of a MATH/STAT course in a mirrored calendar.
 # Usage:
-#   ./sweep_references.py YEARDIR
-#       e.g. ./sweep_references.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2026-27"
-#   ./sweep_references.py YEARDIR --subjects MATH STAT DATA
-#   ./sweep_references.py -h | --help
+#   uv run sweep_references.py YEARDIR
+#       e.g. uv run sweep_references.py "$HOME/OneDrive - University of New Brunswick/TEAM-CURRICULUM/General/academic-calendar/2026-27"
+#   uv run sweep_references.py YEARDIR --subjects MATH STAT DATA
+#   uv run sweep_references.py -h | --help
 #
 #   YEARDIR       a folder written by mirror_calendar.py (it reads YEARDIR/text)
 #   --subjects    the subjects to look for (default: MATH STAT DATA)

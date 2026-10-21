@@ -1,16 +1,15 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = ["openpyxl"]
 # ///
 # timetable_grid.py — draw a year's timetable as week grids (PDF).
 # Usage:
-#   ./timetable_grid.py 2026-27                  2026-27 as the registrar's export has it
-#   ./timetable_grid.py 2027-28 --draft          2027-28 as a draft: 2026-27's courses and times
-#   ./timetable_grid.py 2027-28 --proposal WORKBOOK [--alternatives]
-#                                                our times from a proposed timetable workbook
-#   ./timetable_grid.py 2026-27 --only programs  only the program grids (or: --only department)
-#   ./timetable_grid.py 2026-27 --no-pdf         write the .tex only
-#   ./timetable_grid.py -h | --help
+#   uv run timetable_grid.py 2026-27                  2026-27 as the registrar's export has it
+#   uv run timetable_grid.py 2027-28 --draft          2027-28 as a draft: 2026-27's courses and times
+#   uv run timetable_grid.py 2027-28 --proposal WORKBOOK [--alternatives]
+#                                                     our times from a proposed timetable workbook
+#   uv run timetable_grid.py 2026-27 --only programs  only the program grids (or: --only department)
+#   uv run timetable_grid.py 2026-27 --no-pdf         write the .tex only
+#   uv run timetable_grid.py -h | --help
 #
 #   YEAR            the academic year to draw. Everything is written into the
 #                   Timetable team's folder for that year, which must exist:

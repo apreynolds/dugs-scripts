@@ -1,15 +1,14 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = ["pdfplumber", "openpyxl"]
 # ///
 # transcript_to_tracker.py — build a degree tracker from a transcript PDF.
 # Usage:
-#   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQUIREMENTS.xlsx -o OUT.xlsx
-#   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQ.xlsx -u EXISTING.xlsx
-#   ./transcript_to_tracker.py TRANSCRIPT.pdf -r REQ-2020.xlsx -r REQ-2027.xlsx
-#   ./transcript_to_tracker.py TRANSCRIPT.pdf --ad-hoc -o OUT.xlsx
-#   ./transcript_to_tracker.py --dump-text TRANSCRIPT.pdf
-#   ./transcript_to_tracker.py -h | --help
+#   uv run transcript_to_tracker.py TRANSCRIPT.pdf -r REQUIREMENTS.xlsx -o OUT.xlsx
+#   uv run transcript_to_tracker.py TRANSCRIPT.pdf -r REQ.xlsx -u EXISTING.xlsx
+#   uv run transcript_to_tracker.py TRANSCRIPT.pdf -r REQ-2020.xlsx -r REQ-2027.xlsx
+#   uv run transcript_to_tracker.py TRANSCRIPT.pdf --ad-hoc -o OUT.xlsx
+#   uv run transcript_to_tracker.py --dump-text TRANSCRIPT.pdf
+#   uv run transcript_to_tracker.py -h | --help
 #
 #   TRANSCRIPT.pdf        text-based transcript PDF (not a scan)
 #   -r, --requirements    degree-requirements workbook; repeat the flag to put

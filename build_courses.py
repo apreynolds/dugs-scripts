@@ -1,14 +1,13 @@
-#!/usr/bin/env -S uv run --script
 # /// script
 # dependencies = ["openpyxl"]
 # ///
 # build_courses.py — build the MATH/STAT master course list from Informer exports.
 # Usage:
-#   ./build_courses.py                      rebuild the master list in place
-#   ./build_courses.py -o OUT.xlsx          write a trial copy somewhere else
-#   ./build_courses.py --previous OLD.xlsx -o OUT.xlsx
-#   ./build_courses.py --timetable DIR_OR_CSV [--timetable ...] --summaries DIR
-#   ./build_courses.py -h | --help
+#   uv run build_courses.py                      rebuild the master list in place
+#   uv run build_courses.py -o OUT.xlsx          write a trial copy somewhere else
+#   uv run build_courses.py --previous OLD.xlsx -o OUT.xlsx
+#   uv run build_courses.py --timetable DIR_OR_CSV [--timetable ...] --summaries DIR
+#   uv run build_courses.py -h | --help
 #
 #   -o, --output      workbook to write (default: COURSES-math-stat.xlsx in
 #                     the curriculum folder). Always written from scratch. A
