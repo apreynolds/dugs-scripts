@@ -124,7 +124,7 @@ DAYS = [("M", "Monday"), ("T", "Tuesday"), ("W", "Wednesday"), ("Th", "Thursday"
 LEVELS = [1, 2, 3]
 LEVEL_NAMES = {1: "1000-level", 2: "2000-level", 3: "3000/4000-level"}
 # One colour per level, light enough to print and to read black text on.
-COLOURS = {1: "DDEBF7", 2: "E2EFDA", 3: "FFF2CC"}  # blue, green, yellow
+COLOURS = {1: "FFF2CC", 2: "E2EFDA", 3: "DDEBF7"}  # yellow, green, blue (Patrick, 2026-10-21)
 COURSE_FILL = "F2F2F2"  # light grey, behind every course
 REQUIRED_FRAME = "2F5597"  # dark blue, the frame round a required course on the program grids
 LEVEL_FRAME = "595959"  # dark grey, the frame round every course on the department grid
