@@ -74,17 +74,18 @@
 # pages by level, named so; one where some category is 3rd or 4th year
 # alone gets 3rd- and 4th-year pages apart (Patrick, 2026-10-21). Each
 # day is split by length of meeting (see IN BOTH). On each page:
-#   - every course on a light grey fill; a required one framed in blue, an
-#     option (named choices, first-year science, every 3000/4000-level
-#     MATH/STAT course) not framed
+#   - a required course in a tight box filled with its level's colour, as on
+#     the department grid, "(H)" in it if the Honours track alone requires
+#     it ("(M)" the Major); an option (named choices, first-year science,
+#     every 3000/4000-level MATH/STAT course) unboxed, after the boxes,
+#     separated by commas (Patrick, 2026-10-21)
 #   - our courses at their time; one running this year in the other term is
 #     left off; one not running this year at all sits where it last sat in
-#     this term (the master list's timeslot), struck out, "not in YEAR";
-#     one the master list calls inactive or on hiatus is left off too
+#     this term (the master list's timeslot), struck out, which the footer
+#     explains; one the master list calls inactive or on hiatus is left off
 #   - other units' courses in italic; a course with labs and no lecture at its
 #     lab times
-#   - "Honours only" (or "Major only") under a course one track alone requires
-#   - nothing else under a course
+#   - nothing under a course
 #
 # IN BOTH
 #   - Each day is split by length of meeting: 50-minute meetings in one
@@ -126,8 +127,7 @@ LEVEL_NAMES = {1: "1000-level", 2: "2000-level", 3: "3000/4000-level"}
 # One colour per level, light enough to print and to read black text on.
 COLOURS = {1: "FFF2CC", 2: "E2EFDA", 3: "DDEBF7"}  # yellow, green, blue (Patrick, 2026-10-21)
 COURSE_FILL = "F2F2F2"  # light grey, behind every course
-REQUIRED_FRAME = "2F5597"  # dark blue, the frame round a required course on the program grids
-LEVEL_FRAME = "595959"  # dark grey, the frame round every course on the department grid
+LEVEL_FRAME = "595959"  # dark grey, the frame round every boxed course
 # A meeting this long or shorter goes in the 50-minute column; a longer
 # one (80 minutes, a lab) in the other.
 SHORT_MEETING = 60
@@ -250,10 +250,10 @@ def required_by(programs, course):
 def place_entries(entries):
     """Sort entries into the grid.
 
-    An entry may carry a fifth item, its box: "framed" (required) or
-    "plain" (an option) on the program grids, or "lvl1" to "lvl3" (its
-    level's fill) on the department grid. Each meeting goes in the "short"
-    or "long" sub-column by its length.
+    An entry may carry a fifth item, its box: "lvl1" to "lvl3" (its level's
+    fill) or None (no box, an option on the program grids); and a sixth, a
+    mark written after the course, "H" for (H). Each meeting goes in the
+    "short" or "long" sub-column by its length.
     Returns ({(day, sub-column): [(first row, last row, label, time, small lines,
     start, end, box)]}, latest end time, [entries whose time could not be read]).
     """
@@ -262,11 +262,13 @@ def place_entries(entries):
     latest = FIRST_ROW_TIME
     for key, time, small, style, *extra in entries:
         box = extra[0] if extra else None
+        mark = extra[1] if len(extra) > 1 else ""
         options = pg.parse_options(time)
         if not options:
             skipped.append(f"{bc.course_display(key)} {time!r}")
             continue
-        label = bc.course_display(key)
+        # A tie (~) keeps "MATH 3623" on one line in a narrow cell.
+        label = bc.course_display(key).replace(" ", "~")
         # style: True or "italic" (another unit's course), "moved" (at its new
         # time), "left" (its old slot, struck out), "notrunning" (not this
         # year, struck out), or False.
@@ -278,6 +280,8 @@ def place_entries(entries):
             label = rf"\leftslot{{{label}}}"
         elif style == "notrunning":
             label = rf"\notrunning{{{label}}}"
+        if mark:
+            label += f" ({mark})"  # after the strikeout, so the mark stays legible
         for option in options:
             for day, start, end in option:
                 if day not in dict(DAYS):
@@ -309,9 +313,9 @@ def blocks_in(items):
     for group in groups:
         same_time = len({x[3] for x in group}) == 1
         lines = []
-        # Required courses (framed) before options, then by time.
+        # Boxed courses before unboxed ones, then by time.
         for _, _, label, time, small, start, end, box in sorted(
-                group, key=lambda x: (x[7] != "framed", x[5], x[6])):
+                group, key=lambda x: (not x[7], x[5], x[6])):
             # No time is written: a course sits at its own rows (tex_lanes).
             line = (label, small, start, end, box)
             if line not in lines:
@@ -321,36 +325,35 @@ def blocks_in(items):
 
 
 def tex_course(course, small, box):
-    """One course in a block: its name, its small grey lines right under it
-    (\\progs, defined in the preamble), boxed if box is "framed" or "plain"
-    (the cell's width), or a level's colour, "lvl2" (as tight as the name)."""
-    if box and box.startswith("lvl"):
-        if small:
-            # A tight box holds one line, so the name and its lines are
-            # stacked in a one-column table first.
-            course = (r"\begin{tblr}{colspec={c}, colsep=0pt, rowsep=0pt} " + course + "".join(
-                rf" \\ {{\tiny\color{{black!65}}{tex_escape(s)}}}" for s in small) + r" \end{tblr}")
-        return rf"\levelcourse{{{box}}}{{{course}}}"
-    text = course + r"\par" + "".join(rf"\progs{{{tex_escape(s)}}}" for s in small)
-    # A box is set inline, so it needs its own \par, or the next sits beside it.
-    if box == "framed":
-        return rf"\reqcourse{{{text}}}\par"
-    if box == "plain":
-        return rf"\optcourse{{{text}}}\par"
-    return text
+    """One course in a block: in a tight box of its level's colour if box is
+    "lvl1" to "lvl3", with any small grey lines (the --alternatives notes)
+    under the name inside it; otherwise just its name."""
+    if not box:
+        return course
+    if small:
+        # A tight box holds one line, so the name and its lines are
+        # stacked in a one-column table first.
+        course = (r"\begin{tblr}{colspec={c}, colsep=0pt, rowsep=0pt} " + course + "".join(
+            rf" \\ {{\tiny\color{{black!65}}{tex_escape(s)}}}" for s in small) + r" \end{tblr}")
+    return rf"\levelcourse{{{box}}}{{{course}}}"
 
 
 def tex_courses(lines):
     """Several courses at once, from (course, small, start, end, box) lines.
 
-    Boxes the cell's width go one under another, a little apart. Tight
-    level boxes go side by side and wrap like words; \\lineskip keeps the
-    wrapped lines apart, and the group keeps it to these lines.
+    The boxed ones side by side, wrapping like words; then, on a line of
+    their own, the unboxed ones separated by commas. \\lineskip keeps the
+    wrapped lines of boxes apart, and the group keeps it to these lines.
     """
-    parts = [tex_course(course, small, box) for course, small, _, _, box in lines]
-    if lines and str(lines[0][4]).startswith("lvl"):
-        return r"{\setlength{\lineskip}{2.5pt}" + " ".join(parts) + r"\par}"
-    return r"\vspace{3pt}".join(parts)
+    boxed = " ".join(tex_course(c, small, box) for c, small, _, _, box in lines if box)
+    plain = ", ".join(tex_course(c, small, box) for c, small, _, _, box in lines if not box)
+    text = boxed + (r"\par " if boxed and plain else "") + plain
+    return r"{\setlength{\lineskip}{2.5pt}" + text + r"\par}"
+
+
+def level_legend():
+    """The footer's key to the level colours: a small box of each."""
+    return ", ".join(rf"\levelkey{{lvl{lvl}}}{{{LEVEL_NAMES[lvl]}}}" for lvl in LEVELS)
 
 
 def slot_end(end):
@@ -505,8 +508,7 @@ def tex_document(pages):
     colours = "\n".join(rf"\definecolor{{lvl{lvl}}}{{HTML}}{{{c}}}  % {LEVEL_NAMES[lvl]}"
                         for lvl, c in COLOURS.items())
     colours += "\n" + rf"\definecolor{{coursefill}}{{HTML}}{{{COURSE_FILL}}}  % behind every course"
-    colours += "\n" + rf"\definecolor{{reqframe}}{{HTML}}{{{REQUIRED_FRAME}}}  % a required course's frame, on the program grids"
-    colours += "\n" + rf"\definecolor{{levelframe}}{{HTML}}{{{LEVEL_FRAME}}}  % every course's frame, on the department grid"
+    colours += "\n" + rf"\definecolor{{levelframe}}{{HTML}}{{{LEVEL_FRAME}}}  % every boxed course's frame"
     lines = [
         "% !TeX program = pdflatex",
         "% GENERATED by timetable_grid.py (~/3work/dugs-scripts). Do not edit:",
@@ -536,13 +538,8 @@ def tex_document(pages):
         r"\usepackage{tikz}",
         r"\newlength{\cellw} % such a cell's width, measured before its picture starts",
         "",
-        "% Fill colours: a level's, then the grey behind every course, and the frames.",
+        "% Fill colours: a level's, then the grey behind every course, and the frame.",
         colours,
-        "",
-        "% The small grey lines under a course (who requires it, where its time came from).",
-        "% The \\par inside the braces ends the paragraph while \\tiny is still in",
-        "% force, so its lines use \\tiny's own close spacing.",
-        r"\newcommand{\progs}[1]{{\tiny\color{black!65}#1\par}}",
         "",
         "% With --alternatives: a moved course in red at its new time, and struck",
         "% out in grey in the slot it left. normalem keeps \\emph as italics.",
@@ -550,17 +547,11 @@ def tex_document(pages):
         r"\newcommand{\moved}[1]{\textcolor{BrickRed}{#1}}",
         r"\newcommand{\leftslot}[1]{\textcolor{black!45}{\sout{#1}}}",
         "",
-        "% Every course in a box the width of its cell: \\coursebox{frame}{fill}{text}.",
-        "% The program grids: a required course framed in blue, an option framed",
-        "% in the fill colour, so both take the same room; a course of ours not",
-        "% running this year, struck out. The department grid: every course framed",
-        "% in grey, filled with its level's colour, and only as wide as its name",
-        "% (\\levelcourse); \\levelkey is the footer's key.",
+        "% A boxed course (every one on the department grid, a required one on the",
+        "% program grids): framed in grey, filled with its level's colour, and only",
+        "% as wide as its name; \\levelkey is the footer's key. On the program grids",
+        "% a course of ours not running this year is struck out.",
         r"\newcommand{\notrunning}[1]{\sout{#1}}",
-        r"\newcommand{\coursebox}[3]{{\setlength{\fboxsep}{1.5pt}\setlength{\fboxrule}{0.8pt}%",
-        r"  \fcolorbox{#1}{#2}{\parbox{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}{\centering #3}}}}",
-        r"\newcommand{\reqcourse}[1]{\coursebox{reqframe}{coursefill}{#1}}",
-        r"\newcommand{\optcourse}[1]{\coursebox{coursefill}{coursefill}{#1}}",
         r"\newcommand{\levelcourse}[2]{{\setlength{\fboxsep}{1.5pt}\setlength{\fboxrule}{0.8pt}\fcolorbox{levelframe}{#1}{#2}}}",
         r"\newcommand{\levelkey}[2]{{\setlength{\fboxsep}{1pt}\setlength{\fboxrule}{0.6pt}\fcolorbox{levelframe}{#1}{\upshape #2}}}",
         "",
@@ -747,9 +738,8 @@ def department_grid(term, programs, others, folder, suffix, args, describe):
         else:
             entries.append((key, time, [], False, box))
 
-    legend = ", ".join(rf"\levelkey{{lvl{lvl}}}{{{LEVEL_NAMES[lvl]}}}" for lvl in LEVELS)
     footer = ("Under each day, 50-minute meetings in the first column and longer ones (80 minutes, labs) "
-              f"in the second. Each course is filled with its level's colour: {legend}. "
+              f"in the second. Each course is filled with its level's colour: {level_legend()}. "
               f"{describe} Drawn {datetime.date.today().isoformat()}. ")
     if args.alternatives:
         footer += ("Every alternative time is taken: a course that moved is in red at its new time "
@@ -823,7 +813,6 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
     dormant = {k for k, r in records.items() if r.get("Status", "").strip().lower() in ("inactive", "hiatus")}
     master = {k: r for k, r in records.items() if k not in dormant}
     upper = {c for c in master if level(c) == 3}
-    not_running = f"not in {data_year}"
     today = datetime.date.today().isoformat()
 
     for program in programs:
@@ -855,12 +844,12 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
                 for course in sorted(set(required) | options | electives | upper):
                     if not set(course_years(program, course)) & set(page_years):
                         continue
-                    box = "framed" if course in required else "plain"
-                    # Under a course: which track alone requires it, and
-                    # whether it is not running this year. Nothing else.
-                    small = []
+                    # A required course is boxed in its level's colour, and
+                    # marked (H) if the Honours track alone requires it.
+                    box = f"lvl{level(course)}" if course in required else None
+                    mark = ""
                     if course in required and len(required[course]) < len(program["tracks"]):
-                        small.append(" and ".join(required[course]) + " only")
+                        mark = "/".join(track[0] for track in required[course])
                     if course[:-4] in pg.OURS:
                         # Running this term: its time. Running this year but
                         # the other term: not on this page. Not running this
@@ -874,27 +863,30 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
                         else:
                             time = master_slot(master.get(course, {}).get(slot_column))
                             style = "notrunning"
-                            small.append(not_running)
                         if not pg.parse_options(time):
                             continue  # no set time (a thesis), or never in this season
-                        entries.append((course, time, small, style, box))
+                        entries.append((course, time, [], style, box, mark))
                         continue
                     found = other_time(offerings, course, term["data"], season_terms)
                     if found:
                         time, _ = found
-                        entries.append((course, time, small, True, box))
+                        entries.append((course, time, [], True, box, mark))
                 if not entries:
                     continue  # nothing for this year this term
                 name = page_name(program, page_years)
+                by_letter = {track[0]: track for track in program["tracks"]}  # "H": "Honours"
                 footer = (f"{program['title']}, {name} courses: under each day, 50-minute meetings "
                           "in the first column and longer ones (80 minutes, labs) in the second. "
                           + ("Each course is on the page for the year the program suggests it (the Year "
                              "column of its requirements workbook); one with no year there is on the "
                              "page for its level. " if program["years"] else "")
-                          + "Required courses are framed in blue; the rest are options (named choices, "
+                          + f"Required courses are boxed, filled with their level's colour ({level_legend()})"
+                          + "".join(f"; ({mark}): required on the {' and '.join(by_letter[m] for m in mark.split('/'))} "
+                                    "track only" for mark in sorted({e[5] for e in entries if e[5]}))
+                          + ". The rest, unboxed, are options (named choices, "
                           "first-year science, and every 3000/4000-level MATH/STAT course). "
-                          f"{describe} A course of ours not running in {data_year} is struck out, at the slot "
-                          "it last had in this term. Other units' courses are in italic"
+                          f"{describe} A course of ours struck out is not running in {data_year}: it is at the "
+                          "slot it last had in this term. Other units' courses are in italic"
                           + ("" if term["data"] in season_terms else
                              ", at the time they had the last time they ran in person in this term")
                           + ". A course with sections at different times (or a lab) appears at each: choose one. "
