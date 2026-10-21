@@ -33,7 +33,10 @@ uv run --script ~/3work/dugs-scripts/build_courses.py && uv run --script ~/3work
 It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/General/YEAR/`, which must exist:
 
 - `departmental-grids/`: one page per term with every course of ours, and in small grey type under each the programs that require it: ours from the degree-requirements workbooks, other units' from the "Required, by course" table in `COURSES-required-by-other-units.md`.
-- `program-grids-by-level/`: one PDF per degree program, a page per level (1000, 2000, 3000/4000) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
+- `program-grids-by-level/`: one PDF per degree program, a page per program year (1st, 2nd, 3rd/4th) per term, each day split into 50-minute meetings and longer ones (80 minutes, labs), so no times need writing.
+  Each course goes on the page for the year its category's `Year` cell suggests (`lib/programs.py: suggested_years`), and on every page of a range like 3rd/4th.
+  A course with no year (in no category, or one marked `-`) goes by its level instead, 3000 and 4000 to 3rd/4th, and a workbook with no `Year` column gets the old pages by level, named so.
+  If any category names 3rd or 4th year alone, the program gets separate 3rd- and 4th-year pages.
   Every course sits on a light grey fill; a required one is framed in blue, with "Honours only" (or "Major only") under it when one track alone requires it.
   The rest are options: named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script.
   A course of ours not running this year is struck out, "not in YEAR", at the slot it last had; one the master list's `Status` calls inactive or on hiatus is left off.

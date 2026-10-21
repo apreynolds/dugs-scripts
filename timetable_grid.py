@@ -63,11 +63,17 @@
 # table of COURSES-required-by-other-units.md. A course that is one choice
 # among several is not marked.
 #
-# THE PROGRAM GRIDS BY LEVEL
-# For each degree-requirements workbook, a page per level (1000, 2000,
-# 3000/4000) per term, each day split by length of meeting: 50-minute
-# meetings in one column, 80-minute ones and anything longer (labs) in the
-# other. Two courses in the same column that overlap then almost always
+# THE PROGRAM GRIDS BY YEAR
+# For each degree-requirements workbook, a page per program year (1st, 2nd,
+# 3rd/4th) per term. A course goes on the page for the year the workbook's
+# Year column suggests for its category (lib/programs.py: suggested_years),
+# so STAT 3083 sits with the 2nd-year courses; one with no year there goes
+# by its level, 3000 and 4000 together. A workbook with no Year column gets
+# pages by level, named so; one where some category is 3rd or 4th year
+# alone gets 3rd- and 4th-year pages apart (Patrick, 2026-10-21). (The
+# folder keeps its old name, program-grids-by-level.) Each day is split by
+# length of meeting: 50-minute meetings in one column, 80-minute ones and
+# anything longer (labs) in the other. Two courses in the same column that overlap then almost always
 # share their time exactly, so no times are written: the rows say it
 # (Patrick, 2026-10-21). On each page:
 #   - every course on a light grey fill; a required one framed in blue, an
@@ -779,6 +785,29 @@ def master_slot(text):
     return " | ".join(pieces)
 
 
+# A program's pages, each a tuple of years. A program with no Year column
+# gets the same three as before, named by level instead.
+YEAR_WORDS = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th"}
+
+
+def year_pages(program):
+    """1st, 2nd and 3rd/4th year; 3rd and 4th apart if any category is suggested for one alone."""
+    split = any(len({3, 4} & set(years)) == 1 for years in program["years"].values())
+    return [(1,), (2,), (3,), (4,)] if split else [(1,), (2,), (3, 4)]
+
+
+def course_years(program, course):
+    """The years a course goes on: the program's suggestion, or else its level's (3000 and 4000: 3rd/4th)."""
+    return pg.suggested_years(program, course) or {1: (1,), 2: (2,), 3: (3, 4)}[level(course)]
+
+
+def page_name(program, page_years):
+    """'2nd-year' or '3rd/4th-year'; '2000-level' for a program with no Year column."""
+    if not program["years"]:
+        return LEVEL_NAMES[min(page_years[0], 3)]
+    return "/".join(YEAR_WORDS[y] for y in page_years) + "-year"
+
+
 def program_level_grids(plan, programs, offerings, covered, folder, suffix, args, describe, data_year):
     offered = set().union(*(term["courses"] for term in plan))  # ours that run, in either term
     # Every MATH/STAT course on the master list that is not inactive or on
@@ -816,10 +845,10 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
             season_terms = [t for t in covered if t.endswith(term["season"])
                             and bc.term_key(t) <= bc.term_key(term["data"])][-pg.LOOKBACK:]
             slot_column = "Fall timeslot" if term["season"] == "FA" else "Winter timeslot"
-            for lvl in LEVELS:
+            for page_years in year_pages(program):
                 entries = []
                 for course in sorted(set(required) | options | electives | upper):
-                    if level(course) != lvl:
+                    if not set(course_years(program, course)) & set(page_years):
                         continue
                     box = "framed" if course in required else "plain"
                     # Under a course: which track alone requires it, and
@@ -850,11 +879,15 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                         time, _ = found
                         entries.append((course, time, small, True, "length", box))
                 if not entries:
-                    continue  # nothing at this level this term
+                    continue  # nothing for this year this term
                 spec = BY_LEVEL_COLUMNS
-                footer = (f"{program['title']}, {LEVEL_NAMES[lvl]} courses: under each day, 50-minute meetings "
+                name = page_name(program, page_years)
+                footer = (f"{program['title']}, {name} courses: under each day, 50-minute meetings "
                           "in the first column and longer ones (80 minutes, labs) in the second. "
-                          "Required courses are framed in blue; the rest are options (named choices, "
+                          + ("Each course is on the page for the year the program suggests it (the Year "
+                             "column of its requirements workbook); one with no year there is on the "
+                             "page for its level. " if program["years"] else "")
+                          + "Required courses are framed in blue; the rest are options (named choices, "
                           "first-year science, and every 3000/4000-level MATH/STAT course). "
                           f"{describe} A course of ours not running in {data_year} is struck out, at the slot "
                           "it last had in this term. Other units' courses are in italic"
@@ -862,7 +895,7 @@ def program_level_grids(plan, programs, offerings, covered, folder, suffix, args
                              ", at the time they had the last time they ran in person in this term")
                           + ". A course with sections at different times (or a lab) appears at each: choose one. "
                           f"Drawn {today}.")
-                heading = f"{program['title']}, {term['title']}: {LEVEL_NAMES[lvl]} courses"
+                heading = f"{program['title']}, {term['title']}: {name} courses"
                 if args.label != "timetable":
                     heading += f" ({args.label})"
                 if args.alternatives:
