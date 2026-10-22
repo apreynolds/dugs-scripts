@@ -40,7 +40,7 @@ It writes into the Timetable team's folder for that year, `TEAM-TIMETABLE/Genera
   A course with no year (in no category, or one marked `-`) goes by its level instead, 3000 and 4000 to 3rd/4th, and a workbook with no `Year` column gets the old pages by level, named so.
   If any category names 3rd or 4th year alone, the program gets separate 3rd- and 4th-year pages.
   A required course is in a tight box filled with its level's colour, as on the department grid, with "(H)" (or "(M)") in it when one track alone requires it; the options follow, unboxed, separated by commas.
-  The rest are options: named choices, every upper-level MATH/STAT course, and the first-year science courses, whose list is `FIRST_YEAR_SCIENCE` in the script.
+  The rest are options: named choices, every upper-level MATH/STAT course, and the first-year science courses, which the workbooks' SciBreadth and Lab categories name.
   A course of ours not running this year is struck out, at the slot it last had; one the master list's `Status` calls inactive or on hiatus is left off.
   Overlapping courses at different times get a box each, side by side in lanes.
 

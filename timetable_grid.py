@@ -131,16 +131,6 @@ LEVEL_FRAME = "595959"  # dark grey, the frame round every boxed course
 # A meeting this long or shorter goes in the 50-minute column; a longer
 # one (80 minutes, a lab) in the other.
 SHORT_MEETING = 60
-
-# The first-year science lectures and labs a BSc chooses among. The workbooks'
-# SciBreadth and Lab categories name no courses (an advisor assigns them); this
-# list is from the notes in bsc-mathecon-2026 ("6 of 8 from BIOL 1001/1012,
-# CHEM 1001/1012, ESCI 1052/1041, PHYS 1051/1052"; labs "BIOL 1006/1017, CHEM
-# 1006/1017, ESCI 1057 (or 1026)/1046, PHYS 1091/1092").
-FIRST_YEAR_SCIENCE = [
-    "BIOL1001", "BIOL1012", "CHEM1001", "CHEM1012", "ESCI1052", "ESCI1041", "PHYS1051", "PHYS1052",
-    "BIOL1006", "BIOL1017", "CHEM1006", "CHEM1017", "ESCI1057", "ESCI1046", "PHYS1091", "PHYS1092",
-]
 FIRST_ROW_TIME = 8 * 60 + 30  # the grid starts at 8:30
 DAY_END = 17 * 60  # and runs to at least 5:00, so every page shows the same day
 STEP = 30  # minutes per row
@@ -817,7 +807,9 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
 
     for program in programs:
         # Every course the program names, sorted into required (on some track)
-        # or option. A required course wins over an option.
+        # or option. A required course wins over an option. The first-year
+        # science courses are options too: the workbooks' SciBreadth and Lab
+        # categories name more courses than they need.
         required, options = {}, set()
         for entry in program["tracks"].values():
             for course, roles in entry["exact"].items():
@@ -826,8 +818,6 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
                     required[course] = tracks
                 elif any(role == "option" for role, _, _ in roles):
                     options.add(course)
-        if program["title"].startswith("BSc"):
-            options |= {c for c in FIRST_YEAR_SCIENCE if c not in required}
         # Our courses that only a pattern like MATH 3*** catches are
         # electives, and every upper-level course of ours is shown too:
         # all of them are options.
