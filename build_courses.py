@@ -660,12 +660,27 @@ def season_columns(offerings, season, window, today):
         moved = first_same != slotted[0]  # there was a different slot before
         if moved and first_same in window[-2:]:
             slot += f" (new {term_label(first_same)})"
-    # Typical size: the median of the last three offerings that have started.
-    # A term still open for registration would drag the figure down.
-    started = [t for t in in_person if not offerings[t]["start"] or offerings[t]["start"] <= today]
-    sizes = [offerings[t]["enrolment"] for t in started[-3:]]
-    enrolment = round(statistics.median(sizes)) if sizes else ""
-    return [slot, sections, enrolment]
+    # Typical size and spread over the last six offerings that have started,
+    # e.g. '40 (31–49)': the mean, then the smallest and largest. A term still
+    # open for registration would drag the figures down, and so would a section
+    # that was listed but drew nobody (the course did not really run).
+    started = [t for t in in_person if (not offerings[t]["start"] or offerings[t]["start"] <= today)
+               and offerings[t]["enrolment"] > 0]
+    sizes = [offerings[t]["enrolment"] for t in started[-ENROL_OFFERINGS:]]
+    return [slot, sections, enrolment_text(sizes)]
+
+
+ENROL_OFFERINGS = 6  # how many recent offerings the enrolment cells summarise
+
+
+def enrolment_text(sizes):
+    """'40 (31–49)' for mean (min–max); just '40' for one offering or no spread."""
+    if not sizes:
+        return ""
+    mean = round(statistics.mean(sizes))
+    if min(sizes) == max(sizes):
+        return str(mean)
+    return f"{mean} ({min(sizes)}–{max(sizes)})"
 
 
 def summer_text(offerings, covered):
@@ -821,8 +836,8 @@ MAIN_COLUMNS = [
     ("Course", 11, "id"), ("Title", 34, "id"), ("CH", 5, "id"), ("Format", 11, "id"),
     ("Other numbers", 13, "hand"),
     ("Offering note", 30, "other"),
-    ("Fall timeslot", 34, "fall"), ("Fall sections", 12, "fall"), ("Fall enrol", 9, "fall"),
-    ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"), ("Winter enrol", 9, "winter"),
+    ("Fall timeslot", 34, "fall"), ("Fall sections", 12, "fall"), ("Fall enrol", 13, "fall"),
+    ("Winter timeslot", 34, "winter"), ("Winter sections", 12, "winter"), ("Winter enrol", 13, "winter"),
     ("Summer (in person)", 20, "other"), ("Online", 11, "other"), ("Recent instructors", 28, "other"),
     ("Status", 10, "hand"), ("Required by others", 48, "other"), ("Cross-listed", 16, "hand"),
     ("Notes", 44, "hand"),
@@ -841,8 +856,8 @@ FILLS = {
 # Explanations shown as an Excel note (the little red corner) on a header,
 # for headings that would be too long if they explained themselves.
 HEADER_NOTES = {
-    "Fall enrol": "Median of the last 3 offerings.",
-    "Winter enrol": "Median of the last 3 offerings.",
+    "Fall enrol": "Mean (smallest–largest) of the last 6 offerings.",
+    "Winter enrol": "Mean (smallest–largest) of the last 6 offerings.",
     "Required by others": "Units whose calendar text names this course in a program, or as a "
                           "prerequisite or co-requisite. Whether it is required, one of a list or "
                           "an option: see curriculum/COURSES-required-by-other-units.md.",
@@ -1246,7 +1261,9 @@ def main():
                           "unbroken run, 'not since ...' once two years running are skipped, or a "
                           "pattern with the last term taught. '(grad only)' means it ran under its "
                           "graduate number with no undergraduate section."),
-        ("Enrol", "Median total registration over the last three offerings that have started."),
+        ("Enrol", "Total registration over the last six offerings that have started: the mean, "
+                  "then the smallest and largest in brackets. One figure alone means one offering, "
+                  "or the same count every time."),
         ("Summer (in person)", "Online sections do not count. Summers are covered from 2017."),
         ("Online", "'yes' if offered online in the last two years. Online is never counted as a "
                    "fall, winter or summer offering."),
