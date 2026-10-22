@@ -5,8 +5,8 @@
 # Usage:
 #   uv run timetable_grid.py 2026-27                  2026-27 as the registrar's export has it
 #   uv run timetable_grid.py 2027-28 --draft          2027-28 as a draft: 2026-27's courses and times
-#   uv run timetable_grid.py 2027-28 --proposal WORKBOOK [--alternatives]
-#                                                     our times from a proposed timetable workbook
+#   uv run timetable_grid.py 2027-28 --proposal WORKBOOK [--scenario A]
+#                                                     our times from the committee's workbook
 #   uv run timetable_grid.py 2026-27 --only programs  only the program grids (or: --only department)
 #   uv run timetable_grid.py 2026-27 --no-pdf         write the .tex only
 #   uv run timetable_grid.py -h | --help
@@ -24,11 +24,13 @@
 #                   anything is decided. Files are named with "-draft"
 #   --proposal WB   take our courses and times from the "Course" and "Suggested
 #                   time" columns of a workbook's "Fall YYYY" and "Winter YYYY"
-#                   sheets (the committee's working timetable). Files are named
-#                   with "-proposed"
-#   --alternatives  with --proposal: draw each course that has an "Alternative
-#                   time" there instead, struck out in grey where it was and in
-#                   red where it goes. Files get "-alternative" in the name
+#                   sheets (the committee's working timetable). Suggested time
+#                   is the rollover, each course at last year's time, so files
+#                   are named with "-rollover"
+#   --scenario X    with --proposal: draw each course that has a time in the
+#                   "Scenario X time" column there instead, struck out in grey
+#                   where it was and in red where it goes. Files are named with
+#                   "-scenario-x" instead of "-rollover"
 #   --only KIND     draw only the department grids or only the program grids
 #   --no-pdf        do not run pr-latexmk afterwards
 # Every .tex is overwritten each run: it is output, and nothing in it is typed.
@@ -316,7 +318,7 @@ def blocks_in(items):
 
 def tex_course(course, small, box):
     """One course in a block: in a tight box of its level's colour if box is
-    "lvl1" to "lvl3", with any small grey lines (the --alternatives notes)
+    "lvl1" to "lvl3", with any small grey lines (the --scenario notes)
     under the name inside it; otherwise just its name."""
     if not box:
         return course
@@ -531,7 +533,7 @@ def tex_document(pages):
         "% Fill colours: a level's, then the grey behind every course, and the frame.",
         colours,
         "",
-        "% With --alternatives: a moved course in red at its new time, and struck",
+        "% With --scenario: a moved course in red at its new time, and struck",
         "% out in grey in the slot it left. normalem keeps \\emph as italics.",
         r"\usepackage[normalem]{ulem}",
         r"\newcommand{\moved}[1]{\textcolor{BrickRed}{#1}}",
@@ -577,16 +579,17 @@ def compile_pdf(tex, no_pdf):
     return tex.with_suffix(".pdf")
 
 
-def our_time(record, alternatives):
+def our_time(record, scenario):
     """One of our courses in the plan: (time to draw, note).
 
-    With alternatives, a course that has an Alternative time is drawn there,
-    and the note says where it was.
+    With a scenario ('A'), a course that has a time in that scenario's column
+    is drawn there, and the note says where it was.
     """
     suggested = record.get("Suggested time", "")
-    alternative = record.get("Alternative time", "")
-    if alternatives and pg.parse_options(alternative):
-        return alternative, f"alternative; was {suggested}"
+    if scenario:
+        moved_to = record.get(f"Scenario {scenario} time", "")
+        if pg.parse_options(moved_to):
+            return moved_to, f"scenario {scenario}; was {suggested}"
     return suggested, ""
 
 
@@ -594,8 +597,8 @@ def our_time(record, alternatives):
 # What to draw: a plan, one entry per term of the year
 # A plan is a list of terms, each {"title": 'Fall 2026', "season": 'FA',
 # "data": the term whose times are used ('2026/FA'), "courses": {course: record}},
-# a record holding the "Suggested time" (and, from a proposal, an
-# "Alternative time") the way a proposed timetable workbook does.
+# a record holding the "Suggested time" (and, from a proposal, the
+# "Scenario X time" columns) the way the committee's workbook does.
 # ----------------------------------------------------------------------------
 def year_terms(year):
     """'2026-27' -> [('Fall 2026', 'FA', '2026/FA'), ('Winter 2027', 'WI', '2027/WI')]."""
@@ -675,7 +678,7 @@ def describe_source(mode, year, data_year, source):
     if mode == "draft":
         return (f"A DRAFT for the timetable committee, not the {year} timetable: every course at its "
                 f"{data_year} time, from {source.name}. Courses added or dropped for {year} are not shown.")
-    return f"Our times as proposed in {source.name}."
+    return f"Our times from the committee's workbook, {source.name}."
 
 
 # ----------------------------------------------------------------------------
@@ -717,7 +720,7 @@ def department_grid(term, programs, others, folder, suffix, args, describe):
     entries = []
     who = []  # for page 2: (course, our programs, other units)
     for key, record in sorted(term["courses"].items()):
-        time, moved = our_time(record, args.alternatives)
+        time, moved = our_time(record, args.scenario)
         who.append((key, required_by(programs, key), ", ".join(others.get(key, []))))
         box = f"lvl{level(key)}"  # filled with its level's colour
         if moved:
@@ -731,9 +734,9 @@ def department_grid(term, programs, others, folder, suffix, args, describe):
     footer = ("Under each day, 50-minute meetings in the first column and longer ones (80 minutes, labs) "
               f"in the second. Each course is filled with its level's colour: {level_legend()}. "
               f"{describe} Drawn {datetime.date.today().isoformat()}. ")
-    if args.alternatives:
-        footer += ("Every alternative time is taken: a course that moved is in red at its new time "
-                   "(``alternative; was'' its suggested time), and struck out in grey in the slot it left. ")
+    if args.scenario:
+        footer += (f"Scenario {args.scenario}'s times are taken: a course that moved is in red at its new time "
+                   f"(``scenario {args.scenario}; was'' its suggested time), and struck out in grey in the slot it left. ")
     footer += ("Tutorials and labs are not shown. A course with sections at different times appears at each. "
                "Which programs require each course: the next page.")
     title = f"Mathematics and Statistics, {term['title']}: {args.label}"
@@ -846,7 +849,7 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
                         # year at all: where it last sat in this season.
                         style = False
                         if course in term["courses"]:
-                            time, moved = our_time(term["courses"][course], args.alternatives)
+                            time, moved = our_time(term["courses"][course], args.scenario)
                             style = "moved" if moved else False
                         elif course in offered or course in dormant:
                             continue
@@ -884,8 +887,8 @@ def program_grids(plan, programs, offerings, covered, folder, suffix, args, desc
                 heading = f"{program['title']}, {term['title']}: {name} courses"
                 if args.label != "timetable":
                     heading += f" ({args.label})"
-                if args.alternatives:
-                    footer += " Every alternative time is taken: a course that moved is in red."
+                if args.scenario:
+                    footer += f" Scenario {args.scenario}'s times are taken: a course that moved is in red."
                 page, _ = tex_page(heading, entries, footer)
                 pages.append(page)
         output = folder / f"{program['name']}{suffix}.tex"
@@ -905,15 +908,15 @@ def main():
                         help="draw the year as a draft: last year's courses at last year's times")
     parser.add_argument("--proposal", metavar="WORKBOOK",
                         help="take our courses' times from a proposed timetable workbook instead")
-    parser.add_argument("--alternatives", action="store_true",
-                        help="with --proposal: draw every course that has an Alternative time at that time")
+    parser.add_argument("--scenario", metavar="X", type=str.upper,
+                        help="with --proposal: draw every course that has a 'Scenario X time' at that time")
     parser.add_argument("--only", choices=["department", "programs"], help="draw only one kind of grid")
     parser.add_argument("--no-pdf", action="store_true", help="write the .tex only; do not run pr-latexmk")
     args = parser.parse_args()
     if args.draft and args.proposal:
         sys.exit("--draft and --proposal are two different drafts: choose one.")
-    if args.alternatives and not args.proposal:
-        sys.exit("--alternatives needs --proposal: only a proposed timetable has alternative times.")
+    if args.scenario and not args.proposal:
+        sys.exit("--scenario needs --proposal: only the committee's workbook has scenarios.")
     year_terms(args.year)  # stops on a malformed year
 
     mode = "proposal" if args.proposal else "draft" if args.draft else "export"
@@ -923,12 +926,12 @@ def main():
         sys.exit(f"No folder {folder}; make it first, or check the year.")
     # Anything not from the registrar is marked in every file name, so it cannot
     # be taken for the real timetable.
-    suffix = {"export": "", "draft": "-draft", "proposal": "-proposed"}[mode]
-    suffix += "-alternative" if args.alternatives else ""
+    suffix = {"export": "", "draft": "-draft", "proposal": "-rollover"}[mode]
     args.label = {"export": "timetable", "draft": "DRAFT, last year's times",
-                  "proposal": "proposed timetable"}[mode]
-    if args.alternatives:
-        args.label += ", with the alternative times"
+                  "proposal": "rollover of last year's times"}[mode]
+    if args.scenario:
+        suffix = f"-scenario-{args.scenario.lower()}"
+        args.label = f"scenario {args.scenario}"
 
     if args.proposal:
         source = Path(args.proposal).expanduser()

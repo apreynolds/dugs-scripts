@@ -54,7 +54,7 @@ Four passes a year:
 | March | `uv run timetable_grid.py 2027-28` | Next year, once the registrar has released it |
 | August | `uv run timetable_grid.py 2027-28` | Next year again, nearer the start of term |
 
-- `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-proposed`. Add `--alternatives` to draw every course that has an `Alternative time` there, struck out in grey where it was and in red where it goes, into files named `-proposed-alternative`.
+- `--proposal WORKBOOK` draws the committee's working timetable instead: our courses from the `Course` and `Suggested time` columns of its `Fall YYYY` and `Winter YYYY` sheets, files named `-rollover` (Suggested time is each course at last year's time). Add `--scenario A` to draw every course that has a time in the `Scenario A time` column there, struck out in grey where it was and in red where it goes, into files named `-scenario-a`; each scenario the committee wants to compare gets its own `Scenario X time` and `Basis for scenario X` columns.
 - The program grids drawn from an export are also copied to the Advising team, as `RESOURCES/program-grids/YEAR/<program>-DO-NOT-EDIT.pdf`. Drafts and proposals are not: they are the committee's.
 - `--only department` or `--only programs` draws one kind; `--no-pdf` writes the `.tex` only (and so makes no copy).
 - Whether next year's timetable reaches Informer as soon as the registrar releases it is not known yet (October 2026).
